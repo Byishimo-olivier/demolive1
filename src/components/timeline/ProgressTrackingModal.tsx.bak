@@ -1,0 +1,554 @@
+import React, { useState, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { 
+  timelineApi, 
+  type CreateProgressTrackingRequest, 
+  type ProgressTracking,
+  type StageProgress
+} from '@/lib/timeline-api';
+import { useProject } from '@/contexts/ProjectContext';
+import { Loader2, Save, Plus, Trash2, TrendingUp, AlertTriangle, FileText, Upload, X, File } from 'lucide-react';
+import toast from 'react-hot-toast';
+
+// Backend enums
+export enum ReportingPeriod {
+  DAILY = "daily",
+  WEEKLY = "weekly",
+  MONTHLY = "monthly",
+}
+
+export enum ProjectStage {
+  PRELIMINARIES = "Preliminaries",
+  DESIGN = "Design",
+  ENGINEERING = "Engineering",
+  PROCUREMENT = "Procurement",
+  MOBILIZATION = "Mobilization",
+  CONSTRUCTION = "Construction",
+  TESTING = "Testing and Commissioning",
+  HANDOVER = "Handover",
+}
+
+interface ProgressTrackingModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  progressTracking?: ProgressTracking | null;
+  onSuccess?: () => void;
+}
+
+export function ProgressTrackingModal({ 
+  open, 
+  onOpenChange, 
+  progressTracking, 
+  onSuccess 
+}: ProgressTrackingModalProps) {
+  const { currentProject } = useProject();
+  const [loading, setLoading] = useState(false);
+  const [formData, setFormData] = useState<CreateProgressTrackingRequest>({
+    projectId: currentProject?._id || '',
+    reportingPeriod: ReportingPeriod.WEEKLY,
+    stageProgress: [
+      {
+        stage: ProjectStage.PRELIMINARIES,
+        progressPercentage: 0
+      }
+    ],
+    comments: '',
+    supportingDocumentation: [],
+    delayDocumentation: [],
+    correctiveActions: []
+  });
+  const [supportingFiles, setSupportingFiles] = useState<File[]>([]);
+  const [delayFiles, setDelayFiles] = useState<File[]>([]);
+
+  useEffect(() => {
+    if (progressTracking && open) {
+      setFormData({
+        projectId: progressTracking.projectId,
+        reportingPeriod: progressTracking.reportingPeriod as ReportingPeriod,
+        stageProgress: progressTracking.stageProgress,
+        comments: progressTracking.comments || '',
+        supportingDocumentation: progressTracking.supportingDocumentation || [],
+        delayDocumentation: progressTracking.delayDocumentation || [],
+        correctiveActions: progressTracking.correctiveActions || []
+      });
+    }
+  }, [progressTracking, open]);
+
+  useEffect(() => {
+    if (!open) {
+      resetForm();
+    }
+  }, [open]);
+
+  const resetForm = () => {
+    setFormData({
+      projectId: currentProject?._id || '',
+      reportingPeriod: ReportingPeriod.WEEKLY,
+      stageProgress: [
+        {
+          stage: ProjectStage.PRELIMINARIES,
+          progressPercentage: 0
+        }
+      ],
+      comments: '',
+      supportingDocumentation: [],
+      delayDocumentation: [],
+      correctiveActions: []
+    });
+    setSupportingFiles([]);
+    setDelayFiles([]);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentProject?._id) {
+      toast.error('No project selected');
+      return;
+    }
+
+    if (formData.stageProgress.length === 0) {
+      toast.error('Please add at least one stage progress entry');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      if (progressTracking) {
+        await timelineApi.updateProgressTracking(progressTracking._id, {
+          ...formData,
+          supportingDocumentation: supportingFiles,
+          delayDocumentation: delayFiles
+        });
+        toast.success('Progress tracking updated successfully');
+      } else {
+        await timelineApi.createProgressTracking({
+          ...formData,
+          projectId: currentProject._id,
+          supportingDocumentation: supportingFiles,
+          delayDocumentation: delayFiles
+        });
+        toast.success('Progress tracking created successfully');
+      }
+      
+      onSuccess?.();
+      onOpenChange(false);
+    } catch (error) {
+      console.error('Error saving progress tracking:', error);
+      toast.error(`Failed to ${progressTracking ? 'update' : 'create'} progress tracking`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addStageProgress = () => {
+    setFormData(prev => ({
+      ...prev,
+      stageProgress: [
+        ...prev.stageProgress,
+        {
+          stage: ProjectStage.DESIGN,
+          progressPercentage: 0
+        }
+      ]
+    }));
+  };
+
+  const removeStageProgress = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      stageProgress: prev.stageProgress.filter((_, i) => i !== index)
+    }));
+  };
+
+  const updateStageProgress = (index: number, field: keyof StageProgress, value: string | number) => {
+    setFormData(prev => ({
+      ...prev,
+      stageProgress: prev.stageProgress.map((stage, i) => 
+        i === index ? { ...stage, [field]: value } : stage
+      )
+    }));
+  };
+
+  const addStringArrayItem = (field: 'correctiveActions') => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: [...(prev[field] || []), '']
+    }));
+  };
+
+  const updateStringArrayItem = (
+    field: 'correctiveActions',
+    index: number,
+    value: string
+  ) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: (prev[field] || []).map((item, i) => i === index ? value : item)
+    }));
+  };
+
+  const removeStringArrayItem = (
+    field: 'correctiveActions',
+    index: number
+  ) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: (prev[field] || []).filter((_, i) => i !== index)
+    }));
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>, type: 'supporting' | 'delay') => {
+    const files = Array.from(event.target.files || []);
+    if (type === 'supporting') {
+      setSupportingFiles(prev => [...prev, ...files]);
+    } else {
+      setDelayFiles(prev => [...prev, ...files]);
+    }
+  };
+
+  const removeFile = (index: number, type: 'supporting' | 'delay') => {
+    if (type === 'supporting') {
+      setSupportingFiles(prev => prev.filter((_, i) => i !== index));
+    } else {
+      setDelayFiles(prev => prev.filter((_, i) => i !== index));
+    }
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const calculateOverallProgress = () => {
+    if (formData.stageProgress.length === 0) return 0;
+    return Math.round(
+      formData.stageProgress.reduce((sum, stage) => sum + stage.progressPercentage, 0) / 
+      formData.stageProgress.length
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-xl font-semibold flex items-center gap-2">
+            <TrendingUp className="h-6 w-6 text-blue-600" />
+            {progressTracking ? 'Edit Progress Tracking' : 'Create Progress Tracking'}
+          </DialogTitle>
+          <p className="text-sm text-muted-foreground mt-1">
+            Track progress across different project stages and report on project advancement.
+          </p>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Basic Information */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                Basic Information
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="reportingPeriod">Reporting Period *</Label>
+                  <Select
+                    value={formData.reportingPeriod}
+                    onValueChange={(value) => 
+                      setFormData(prev => ({ ...prev, reportingPeriod: value as ReportingPeriod }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select reporting period" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.values(ReportingPeriod).map((period) => (
+                        <SelectItem key={period} value={period}>
+                          {period.charAt(0).toUpperCase() + period.slice(1)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Overall Progress</Label>
+                  <div className="p-3 bg-blue-50 rounded-lg border">
+                    <div className="text-2xl font-bold text-blue-600">
+                      {calculateOverallProgress()}%
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      Calculated from stage progress
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="comments">Comments</Label>
+                <Textarea
+                  id="comments"
+                  value={formData.comments}
+                  onChange={(e) => setFormData(prev => ({ ...prev, comments: e.target.value }))}
+                  placeholder="Add general comments about project progress..."
+                  rows={3}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Stage Progress */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5" />
+                  Stage Progress ({formData.stageProgress.length})
+                </CardTitle>
+                <Button type="button" variant="outline" size="sm" onClick={addStageProgress}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Stage
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {formData.stageProgress.length === 0 && (
+                <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg">
+                  <div className="text-gray-500 mb-2">No stage progress added yet</div>
+                  <div className="text-sm text-gray-400">Click "Add Stage" to get started</div>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {formData.stageProgress.map((stage, index) => (
+                  <div key={index} className="p-4 bg-white border rounded-lg shadow-sm">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <Label>Project Stage *</Label>
+                        <Select
+                          value={stage.stage}
+                          onValueChange={(value) => updateStageProgress(index, 'stage', value)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select stage" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Object.values(ProjectStage).map((stageValue) => (
+                              <SelectItem key={stageValue} value={stageValue}>
+                                {stageValue}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Progress Percentage *</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={stage.progressPercentage}
+                          onChange={(e) => updateStageProgress(index, 'progressPercentage', parseInt(e.target.value) || 0)}
+                          placeholder="0-100"
+                          required
+                        />
+                      </div>
+
+                      <div className="flex items-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => removeStageProgress(index)}
+                          className="text-red-600 hover:text-red-700 hover:border-red-300"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Supporting Documentation */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Supporting Documentation
+                </CardTitle>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => addStringArrayItem('supportingDocumentation')}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Document
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {formData.supportingDocumentation?.map((doc, index) => (
+                  <div key={index} className="flex gap-2">
+                    <Input
+                      value={doc}
+                      onChange={(e) => updateStringArrayItem('supportingDocumentation', index, e.target.value)}
+                      placeholder="Document name or URL"
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removeStringArrayItem('supportingDocumentation', index)}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+                {(!formData.supportingDocumentation || formData.supportingDocumentation.length === 0) && (
+                  <div className="text-center py-4 text-muted-foreground text-sm">
+                    No supporting documentation added yet
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Delay Documentation */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                  Delay Documentation
+                </CardTitle>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => addStringArrayItem('delayDocumentation')}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Delay
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {formData.delayDocumentation?.map((delay, index) => (
+                  <div key={index} className="flex gap-2">
+                    <Input
+                      value={delay}
+                      onChange={(e) => updateStringArrayItem('delayDocumentation', index, e.target.value)}
+                      placeholder="Describe the delay or issue"
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removeStringArrayItem('delayDocumentation', index)}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+                {(!formData.delayDocumentation || formData.delayDocumentation.length === 0) && (
+                  <div className="text-center py-4 text-muted-foreground text-sm">
+                    No delays documented
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Corrective Actions */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Save className="h-5 w-5 text-green-600" />
+                  Corrective Actions
+                </CardTitle>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => addStringArrayItem('correctiveActions')}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Action
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {formData.correctiveActions?.map((action, index) => (
+                  <div key={index} className="flex gap-2">
+                    <Input
+                      value={action}
+                      onChange={(e) => updateStringArrayItem('correctiveActions', index, e.target.value)}
+                      placeholder="Describe corrective action taken"
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removeStringArrayItem('correctiveActions', index)}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+                {(!formData.correctiveActions || formData.correctiveActions.length === 0) && (
+                  <div className="text-center py-4 text-muted-foreground text-sm">
+                    No corrective actions documented
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </form>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="submit" onClick={handleSubmit} disabled={loading}>
+            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            <Save className="mr-2 h-4 w-4" />
+            {progressTracking ? 'Update' : 'Create'} Progress Tracking
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -1,0 +1,123 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&family=Outfit:wght@100..900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-heading: 'Space Grotesk', sans-serif;
+    --font-body: 'Plus Jakarta Sans', sans-serif;
+    --font-accent: 'Outfit', sans-serif;
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --radius: 0.5rem;
+
+     /* Theme colors */
+    --theme-primary: 221.2 83.2% 53.3%; /* Blue-600 */
+    --theme-primary-light: 213.1 93.9% 67.8%; /* Blue-400 */
+    --theme-accent: 258.3 89.5% 66.3%; /* Violet-500 */
+    --theme-success: 160 84% 39.4%; /* Emerald-600 */
+    --theme-warning: 32 95% 44%; /* Amber-600 */
+    --theme-danger: 0 72.2% 50.6%; /* Red-600 */
+  }
+
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    scroll-behavior: smooth;
+  }
+  body {
+    font-family: var(--font-body);
+    @apply antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    @apply tracking-tight;
+  }
+}
+
+@layer components {
+   .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-violet-600;
+  }
+
+  .text-gradient-warm {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-violet-500;
+  }
+
+  .glass-card {
+    @apply bg-white/70 backdrop-blur-xl border border-white/20 shadow-xl;
+  }
+
+  .glow-primary {
+    box-shadow: 0 0 60px -15px rgba(59, 130, 246, 0.4);
+  }
+
+  .glow-accent {
+    box-shadow: 0 0 60px -15px rgba(139, 92, 246, 0.4);
+  }
+
+  .bg-theme-gradient {
+    @apply bg-gradient-to-r from-blue-600 to-violet-600;
+  }
+
+  .bg-theme-gradient-subtle {
+    @apply bg-gradient-to-r from-blue-50 to-violet-50;
+  }
+
+  .bg-theme-dark {
+    @apply bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900;
+  }
+
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-20px); }
+  }
+
+  .animate-pulse-slow {
+    animation: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+}
+
+@layer base {
+  .ProseMirror ul,
+  .ProseMirror ol {
+    padding: 0 1.25rem;
+    margin: 1.25rem 0;
+  }
+
+  .ProseMirror ul {
+    list-style-type: disc;
+  }
+
+  .ProseMirror ol {
+    list-style-type: decimal;
+  }
+
+  .ProseMirror li p {
+    margin-top: 0.25em;
+    margin-bottom: 0.25em;
+  }
+}
