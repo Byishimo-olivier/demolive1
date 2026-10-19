@@ -26,7 +26,7 @@ type AuthContextType = {
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   switchToProfile: (profileType: ProfileType, profileId: string) => Promise<void>;
-  refreshUserCompanies: () => Promise<void>;
+  refreshUserCompanies: (activateCompanyId?: string) => Promise<void>;
   updateUser: (user: User) => void;
   can: (permission: string) => boolean;
 };
@@ -130,6 +130,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             return;
           }
         }
+      } else if (companies.data.length > 0) {
+        // Invited members should land in the company workspace so they can see
+        // the shared company data immediately. Their membership role still
+        // controls which actions are available there.
+        await setOrganizationActiveProfile(user, companies.data[0]);
+        return;
       }
       
       // Default to personal profile
@@ -218,11 +224,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     navigate('/dashboard');
   };
 
-  const refreshUserCompanies = async () => {
+  const refreshUserCompanies = async (activateCompanyId?: string) => {
     if (!user) return;
     try {
       const companies = await companiesApi.getUserCompanies();
       setOrganizationProfiles(companies.data);
+      if (activateCompanyId) {
+        const joinedCompany = companies.data.find(
+          (company: Company) => company._id === activateCompanyId
+        );
+        if (joinedCompany) {
+          await setOrganizationActiveProfile(user, joinedCompany);
+        }
+      }
     } catch (error) {
       console.error('Error refreshing user companies:', error);
     }

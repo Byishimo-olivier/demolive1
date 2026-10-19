@@ -59,7 +59,7 @@ export default function CompanyInvitationAccept() {
           toast.success('Welcome to the company!');
           
           // Refresh user's company list
-          await refreshUserCompanies();
+          await refreshUserCompanies(response.data?.companyId);
         } else {
           setStatus('error');
           setMessage(response.message || 'Failed to accept invitation. Please try again.');
