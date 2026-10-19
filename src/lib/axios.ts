@@ -2,7 +2,11 @@ import axios, { AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'ax
 import toast from 'react-hot-toast';
 import { permissionService } from '../services/permission.service';
 
-const baseURL = import.meta.env.VITE_BASE_URL || 'http://localhost:4000';
+// Use Vite's same-origin dev proxy locally so browser requests do not need
+// cross-origin CORS permission. Production builds continue using VITE_BASE_URL.
+const baseURL = import.meta.env.DEV
+  ? ''
+  : import.meta.env.VITE_BASE_URL || 'http://localhost:4000';
 const apiBaseURL = `${baseURL.replace(/\/$/, '')}/api/v1`;
 const PROXY_URL = "https://api.ivainqueur.dev/nocors";
 //  const PROXY_URL = "http://localhost:3500/nocors";
