@@ -26,10 +26,11 @@ import {
 } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
+import { Checkbox } from '../components/ui/checkbox';
 import { useAuth } from '../contexts/AuthContext';
 import { companiesApi } from '../lib/companies-api';
-import { CompanyMember, CompanyInvite, UserRole } from '../types';
-import { Search, UserPlus, Mail, Trash2, Edit, Plus, X, MoreHorizontal } from 'lucide-react';
+import { CompanyMember, CompanyInvite, Project, UserRole } from '../types';
+import { Search, UserPlus, Mail, Trash2, Edit, Plus, X, MoreHorizontal, ChevronDown } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { humanizeLabel } from '@/lib/utils';
 import { getErrorMessage } from '@/utils/error-handler';
@@ -58,9 +59,12 @@ export function Members() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
-  const [inviteMembers, setInviteMembers] = useState<Array<{ email: string; role: UserRole }>>([
-    { email: '', role: UserRole.FINANCE_OFFICER }
+  const [inviteMembers, setInviteMembers] = useState<Array<{ email: string; role: UserRole; projectIds: string[] }>>([
+    { email: '', role: UserRole.FINANCE_OFFICER, projectIds: [] }
   ]);
+  const [companyProjects, setCompanyProjects] = useState<Project[]>([]);
+  const [projectSearchTerm, setProjectSearchTerm] = useState('');
+  const [projectsLoading, setProjectsLoading] = useState(false);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [canEditMembers, setCanEditMembers] = useState(false);
 
@@ -114,6 +118,17 @@ export function Members() {
       
       // Handle the API response structure
       const company = response.data || response;
+
+      setProjectsLoading(true);
+      try {
+        const projectsResponse = await companiesApi.getCompanyProjects(activeProfile.id);
+        setCompanyProjects(projectsResponse.data || []);
+      } catch (projectError) {
+        console.error('Failed to load company projects for invitations:', projectError);
+        setCompanyProjects([]);
+      } finally {
+        setProjectsLoading(false);
+      }
       
       // Helper function to get owner ID consistently
       const getOwnerId = (ownerId: string | { _id: string; fullName: string; email: string }) => {
@@ -214,7 +229,7 @@ export function Members() {
   };
 
   const addInviteMember = () => {
-    setInviteMembers([...inviteMembers, { email: '', role: UserRole.FINANCE_OFFICER }]);
+    setInviteMembers([...inviteMembers, { email: '', role: UserRole.FINANCE_OFFICER, projectIds: [] }]);
   };
 
   const removeInviteMember = (index: number) => {
@@ -227,6 +242,19 @@ export function Members() {
     const updated = [...inviteMembers];
     updated[index] = { ...updated[index], [field]: value };
     setInviteMembers(updated);
+  };
+
+  const toggleInviteProject = (index: number, projectId: string, selected: boolean) => {
+    setInviteMembers((current) => current.map((member, memberIndex) => {
+      if (memberIndex !== index) return member;
+      const projectIds = member.projectIds || [];
+      return {
+        ...member,
+        projectIds: selected
+          ? [...new Set([...projectIds, projectId])]
+          : projectIds.filter((id) => id !== projectId),
+      };
+    }));
   };
 
   const handleInvite = async (e: React.FormEvent) => {
@@ -247,11 +275,13 @@ export function Members() {
           companyId: activeProfile.id,
           email: member.email.trim(),
           role: member.role,
+          projectIds: member.projectIds,
         });
       }
       toast.success(`Sent ${validMembers.length} invitation${validMembers.length > 1 ? 's' : ''} successfully`);
       setInviteModalOpen(false);
-      setInviteMembers([{ email: '', role: UserRole.FINANCE_OFFICER }]);
+      setInviteMembers([{ email: '', role: UserRole.FINANCE_OFFICER, projectIds: [] }]);
+      setProjectSearchTerm('');
       loadMembers();
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, 'Failed to send invitation'));
@@ -462,7 +492,7 @@ export function Members() {
       {/* Invite Modal */}
       {canEditMembers && (
       <Dialog open={inviteModalOpen} onOpenChange={setInviteModalOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Invite Members</DialogTitle>
           </DialogHeader>
@@ -509,6 +539,72 @@ export function Members() {
               ))}
             </SelectContent>
                     </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium">Assign to projects</label>
+                      <span className="text-xs text-muted-foreground">
+                        {(member.projectIds || []).length} selected
+                      </span>
+                    </div>
+                    <details className="group rounded-md border">
+                      <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm">
+                        <span>
+                          {(member.projectIds || []).length
+                            ? `${member.projectIds.length} project${member.projectIds.length === 1 ? '' : 's'} selected`
+                            : 'Select projects'}
+                        </span>
+                        <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="space-y-2 border-t p-2">
+                        <Input
+                          value={projectSearchTerm}
+                          onChange={(event) => setProjectSearchTerm(event.target.value)}
+                          placeholder="Search projects..."
+                          aria-label="Search projects"
+                        />
+                        <div className="max-h-40 space-y-1 overflow-y-auto">
+                          {projectsLoading ? (
+                            <p className="p-2 text-sm text-muted-foreground">Loading projects...</p>
+                          ) : companyProjects.filter((project) =>
+                            `${project.name} ${project.projectCode || ''}`
+                              .toLowerCase()
+                              .includes(projectSearchTerm.toLowerCase())
+                          ).length === 0 ? (
+                            <p className="p-2 text-sm text-muted-foreground">
+                              {companyProjects.length ? 'No projects match your search.' : 'No company projects available.'}
+                            </p>
+                          ) : (
+                            companyProjects
+                              .filter((project) =>
+                                `${project.name} ${project.projectCode || ''}`
+                                  .toLowerCase()
+                                  .includes(projectSearchTerm.toLowerCase())
+                              )
+                              .map((project) => (
+                                <label
+                                  key={project._id}
+                                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
+                                >
+                                  <Checkbox
+                                    checked={(member.projectIds || []).includes(project._id)}
+                                    onCheckedChange={(checked) =>
+                                      toggleInviteProject(index, project._id, checked === true)
+                                    }
+                                  />
+                                  <span>{project.name}</span>
+                                  {project.projectCode && (
+                                    <span className="text-xs text-muted-foreground">{project.projectCode}</span>
+                                  )}
+                                </label>
+                              ))
+                          )}
+                        </div>
+                      </div>
+                    </details>
+                    <p className="text-xs text-muted-foreground">
+                      The selected role will be used for each project assignment.
+                    </p>
                   </div>
                 </div>
               </div>

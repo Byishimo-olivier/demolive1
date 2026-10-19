@@ -1,6 +1,6 @@
 import { api } from './axios';
 import { Permissions } from '../constants/permissions';
-import { UserRole, CreateCompanyData, InviteMemberData } from '../types';
+import { UserRole, CreateCompanyData, InviteMemberData, Project } from '../types';
 
 // API Functions
 export const companiesApi = {
@@ -119,6 +119,14 @@ export const companiesApi = {
 
   getUserCompanies: async () => {
     const response = await api.get('/companies/user/me');
+    return response.data;
+  },
+
+  getCompanyProjects: async (companyId: string) => {
+    const response = await api.get<{ success: boolean; data: Project[] }>(
+      `/companies/${companyId}/projects`,
+      { requiresPermission: Permissions.COMPANY_VIEW_PROJECTS }
+    );
     return response.data;
   },
 

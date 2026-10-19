@@ -81,6 +81,11 @@ export function Register() {
   };
 
   const onSubmit = async (data: RegisterFormValues) => {
+    if (!companyInvitationToken) {
+      toast.error('Use the company invitation link to create your account.');
+      return;
+    }
+
     setIsLoading(true);
     try {
       if (companyInvitationToken) {

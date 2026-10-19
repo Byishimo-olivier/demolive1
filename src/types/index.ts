@@ -384,4 +384,5 @@ export type InviteMemberData = {
   companyId: string;
   email: string;
   role: UserRole;
+  projectIds?: string[];
 };
