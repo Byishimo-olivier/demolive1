@@ -216,20 +216,20 @@ export function Login() {
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-gray-200" />
                 </div>
-                <div className="relative flex justify-center text-sm">
+                {/* <div className="relative flex justify-center text-sm">
                   <span className="px-4 bg-white text-gray-500">
                     Don't have an account?
                   </span>
-                </div>
+                </div> */}
               </div>
 
-              <Button
+              {/* <Button
                 variant="outline"
                 className="w-full h-11 mt-6 border-gray-200 hover:bg-gray-50 rounded-lg font-medium"
                 onClick={() => navigate('/register')}
               >
                 Create an account
-              </Button>
+              </Button> */}
             </div>
 
             <p className="mt-8 text-center text-sm text-gray-500">
