@@ -1,7 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
-import { Plus, Edit, FileText, Loader2, Trash2, Download, Eye } from "lucide-react"; 
+import { Plus, Edit, FileText, Loader2, Trash2, Download, Eye, PenLine, Undo2, ShieldCheck } from "lucide-react";
+import { ApprovePurchaseOrderDialog } from "./ApprovePurchaseOrderDialog";
+import { approvalsApi, type MdApprovalInfo } from "@/lib/approvals-api";
+import { getErrorMessage } from "@/utils/error-handler";
 import toast from "react-hot-toast";
 import { procurementApi, type PurchaseOrder } from "../../lib/procurement-api"; 
 import { type MaterialRequest } from "../../types";
@@ -36,6 +39,32 @@ export function PurchaseOrderForm({
     order: null
   });
   const [viewOrder, setViewOrder] = useState<PurchaseOrder | null>(null);
+  const [signing, setSigning] = useState<PurchaseOrder | null>(null);
+  const [approvals, setApprovals] = useState<MdApprovalInfo | null>(null);
+
+  // Who may approve and sign purchase orders on this project
+  useEffect(() => {
+    let cancelled = false;
+    approvalsApi
+      .getProjectSettings(projectId)
+      .then((res) => !cancelled && setApprovals(res.data))
+      .catch(() => !cancelled && setApprovals(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+  const canSign = !!approvals?.canApprovePurchaseOrders;
+
+  const returnToDraft = async (order: PurchaseOrder) => {
+    if (!window.confirm(`Withdraw the approval of ${order.poNumber}? Its signature is removed and it becomes a draft.`)) return;
+    try {
+      const res = await procurementApi.returnPurchaseOrderToDraft(order._id);
+      toast.success(res.message || "Purchase order is a draft again");
+      onSuccess();
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Failed to return the purchase order to draft"));
+    }
+  };
 
   // Handle pre-selection from material request
   React.useEffect(() => {
@@ -126,6 +155,16 @@ export function PurchaseOrderForm({
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
                     <h3 className="font-semibold text-lg">{order.poNumber}</h3>
+                    {order.status === "Approved" ? (
+                      <span className="flex items-center gap-1 rounded border border-green-200 bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+                        <ShieldCheck className="h-3 w-3" />
+                        Approved
+                      </span>
+                    ) : (
+                      <span className="rounded border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-bold uppercase tracking-wider text-red-600">
+                        Draft
+                      </span>
+                    )}
                     {order.materialRequestId && (
                       <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
                         From Material Request
@@ -157,13 +196,19 @@ export function PurchaseOrderForm({
                   </div>
 
                   <div className="flex items-center gap-4 mt-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      order.expenseRecorded 
-                        ? "bg-green-100 text-green-800" 
-                        : "bg-yellow-100 text-yellow-800"
-                    }`}>
-                      {order.expenseRecorded ? "✓ Expenses Recorded" : "⏳ Pending Expenses"}
-                    </span>
+                    {order.status === "Approved" && order.approval?.signature ? (
+                      <span className="text-xs text-muted-foreground">
+                        Signed by {order.approval.signature.signerName}
+                        {order.approval.approvedAt ? ` on ${new Date(order.approval.approvedAt).toLocaleDateString()}` : ""}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Waiting for approval and signature</span>
+                    )}
+                    {order.expenseRecorded && (
+                      <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600" title="Created before expenses came from received goods">
+                        Expenses recorded at order
+                      </span>
+                    )}
                     
                     <span className="text-xs text-muted-foreground bg-gray-100 px-2 py-1 rounded">
                       {order.paymentTerms}
@@ -183,7 +228,18 @@ export function PurchaseOrderForm({
               )}
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  {order.status !== "Approved" && canSign && (
+                    <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => setSigning(order)}>
+                      <PenLine className="mr-1 h-4 w-4" />
+                      Approve & sign
+                    </Button>
+                  )}
+                  {order.status === "Approved" && canSign && (
+                    <Button variant="ghost" size="sm" onClick={() => returnToDraft(order)} title="Return to draft">
+                      <Undo2 className="h-4 w-4" />
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -206,7 +262,8 @@ export function PurchaseOrderForm({
                     variant="ghost"
                     size="sm"
                     onClick={() => handleEdit(order)}
-                    disabled={isDeleting === order._id}
+                    disabled={isDeleting === order._id || (order.status === "Approved" && !canSign)}
+                    title={order.status === "Approved" ? "Signed orders can only be changed by their approver (and need signing again)" : "Edit"}
               >
                     <Edit className="h-4 w-4" />
               </Button>
@@ -214,7 +271,7 @@ export function PurchaseOrderForm({
                     variant="ghost"
                     size="sm"
                     onClick={() => handleDelete(order._id)}
-                    disabled={isDeleting === order._id}
+                    disabled={isDeleting === order._id || (order.status === "Approved" && !canSign)}
                   >
                     {isDeleting === order._id ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -249,6 +306,13 @@ export function PurchaseOrderForm({
           purchaseOrder={exportDialog.order}
         />
       )}
+      <ApprovePurchaseOrderDialog
+        order={signing}
+        onOpenChange={(open) => !open && setSigning(null)}
+        isMd={!!approvals?.isMd}
+        onApproved={onSuccess}
+      />
+
       {/* PO Details Modal */}
       {viewOrder && (
         <PurchaseOrderDetailsModal

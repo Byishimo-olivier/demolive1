@@ -51,7 +51,9 @@ export function PurchaseOrderModal({
   preSelectMaterialRequest,
   mode = "manual",
 }: PurchaseOrderModalProps) {
-  const { formatAmount } = useCurrency();
+  // Procurement amounts are always in Rwandan francs (the agreed workflow), whatever the display setting
+  const { formatAmount: formatIn } = useCurrency();
+  const formatAmount = (amount: number) => formatIn(amount, 'RWF');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedMaterialRequest, setSelectedMaterialRequest] = useState<string>("");
   const [creationMode, setCreationMode] = useState<"manual" | "from-request">(mode);

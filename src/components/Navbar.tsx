@@ -13,6 +13,7 @@ import { Badge } from './ui/badge';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { CurrencySwitcher } from './CurrencySwitcher';
+import { BrandLogo } from '@/components/BrandLogo';
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -40,14 +41,7 @@ export function Navbar({ onToggleSidebar, isSidebarCollapsed }: NavbarProps) {
             )}
           </Button>
 
-          <img
-            src="/infrasoko-logo.png"
-            alt="InfraSoko"
-            className="h-7 w-auto hidden md:block"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }}
-          />
+          <BrandLogo size="sm" className="hidden md:inline-flex" />
           {user && (
             <Badge variant="secondary" className="hidden md:inline-flex bg-blue-50 text-blue-700 border-blue-200 text-xs py-0">
               BETA

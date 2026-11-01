@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { BrandLogo } from '@/components/BrandLogo';
 
 const plans = [
   {
@@ -456,10 +457,7 @@ export function Pricing() {
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gray-900 flex items-center justify-center">
-                <Building2 className="h-4 w-4 text-white" />
-              </div>
-              <span className="text-lg font-bold text-gray-900 font-heading">InfraSoko</span>
+              <BrandLogo />
             </div>
             <div className="flex flex-col sm:flex-row items-center gap-6 text-sm text-gray-500 mt-4 md:mt-0">
               <Link to="/privacy-policy" className="hover:text-gray-900">Privacy Policy</Link>

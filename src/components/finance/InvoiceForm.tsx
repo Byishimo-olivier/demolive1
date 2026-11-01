@@ -42,6 +42,7 @@ export function InvoiceForm({ projectId, invoices, onSuccess }: Props) {
     },
     invoiceItems: [],
     paymentTerms: '',
+    invoiceDate: new Date().toISOString().split('T')[0],
     dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now
     paymentDetails: {
       bankName: '',
@@ -77,6 +78,7 @@ export function InvoiceForm({ projectId, invoices, onSuccess }: Props) {
           end: new Date(formData.workPeriod.end + 'T23:59:59.999Z').toISOString(),
         },
         dueDate: new Date(formData.dueDate + 'T23:59:59.999Z').toISOString(),
+        invoiceDate: new Date((formData.invoiceDate || new Date().toISOString().split('T')[0]) + 'T00:00:00.000Z').toISOString(),
       };
 
       if (selectedFiles.length > 0) {
@@ -110,7 +112,7 @@ export function InvoiceForm({ projectId, invoices, onSuccess }: Props) {
   const handleVoidInvoice = async (invoiceId: string) => {
     const reason = prompt('Please provide a reason for voiding this invoice:');
     if (!reason) return;
-    
+
     try {
       await financeApi.voidInvoice(invoiceId, reason);
       toast.success('Invoice voided successfully');
@@ -131,6 +133,7 @@ export function InvoiceForm({ projectId, invoices, onSuccess }: Props) {
       },
       invoiceItems: [],
       paymentTerms: '',
+      invoiceDate: new Date().toISOString().split('T')[0],
       dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       paymentDetails: {
         bankName: '',
@@ -253,8 +256,11 @@ export function InvoiceForm({ projectId, invoices, onSuccess }: Props) {
 
   const getStatusColor = (status: string) => {
     const colors = {
+      'draft': 'bg-gray-100 text-gray-700',
+      'submitted': 'bg-yellow-100 text-yellow-800',
       'pending': 'bg-yellow-100 text-yellow-800',
       'approved': 'bg-green-100 text-green-800',
+      'rejected': 'bg-red-100 text-red-800',
       'paid': 'bg-blue-100 text-blue-800',
       'void': 'bg-red-100 text-red-800',
     };
@@ -328,8 +334,8 @@ export function InvoiceForm({ projectId, invoices, onSuccess }: Props) {
                     id="workPeriodStart"
                     type="date"
                     value={formData.workPeriod.start}
-                    onChange={(e) => setFormData({ 
-                      ...formData, 
+                    onChange={(e) => setFormData({
+                      ...formData,
                       workPeriod: { ...formData.workPeriod, start: e.target.value }
                     })}
                     required
@@ -342,8 +348,8 @@ export function InvoiceForm({ projectId, invoices, onSuccess }: Props) {
                     id="workPeriodEnd"
                     type="date"
                     value={formData.workPeriod.end}
-                    onChange={(e) => setFormData({ 
-                      ...formData, 
+                    onChange={(e) => setFormData({
+                      ...formData,
                       workPeriod: { ...formData.workPeriod, end: e.target.value }
                     })}
                     required
@@ -519,6 +525,16 @@ export function InvoiceForm({ projectId, invoices, onSuccess }: Props) {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
+                  <Label htmlFor="invoiceDate">Invoice Date</Label>
+                  <Input
+                    id="invoiceDate"
+                    type="date"
+                    value={formData.invoiceDate ?? ''}
+                    onChange={(e) => setFormData({ ...formData, invoiceDate: e.target.value })}
+                    required
+                  />
+                </div>
+                <div>
                   <Label htmlFor="dueDate">Due Date</Label>
                   <Input
                     id="dueDate"
@@ -538,8 +554,8 @@ export function InvoiceForm({ projectId, invoices, onSuccess }: Props) {
                           <Input
                       id="bankName"
                       value={formData.paymentDetails.bankName}
-                      onChange={(e) => setFormData({ 
-                        ...formData, 
+                      onChange={(e) => setFormData({
+                        ...formData,
                         paymentDetails: { ...formData.paymentDetails, bankName: e.target.value }
                       })}
                       required
@@ -550,8 +566,8 @@ export function InvoiceForm({ projectId, invoices, onSuccess }: Props) {
                     <Input
                       id="accountNumber"
                       value={formData.paymentDetails.accountNumber}
-                      onChange={(e) => setFormData({ 
-                        ...formData, 
+                      onChange={(e) => setFormData({
+                        ...formData,
                         paymentDetails: { ...formData.paymentDetails, accountNumber: e.target.value }
                       })}
                       required
@@ -562,8 +578,8 @@ export function InvoiceForm({ projectId, invoices, onSuccess }: Props) {
                             <Input
                       id="accountName"
                       value={formData.paymentDetails.accountName}
-                      onChange={(e) => setFormData({ 
-                        ...formData, 
+                      onChange={(e) => setFormData({
+                        ...formData,
                         paymentDetails: { ...formData.paymentDetails, accountName: e.target.value }
                       })}
                       required
@@ -628,8 +644,8 @@ export function InvoiceForm({ projectId, invoices, onSuccess }: Props) {
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        Work Period: {format(new Date(invoice.workPeriod.start), 'MMM d')} - {format(new Date(invoice.workPeriod.end), 'MMM d, yyyy')} •
-                        Due: {format(new Date(invoice.dueDate), 'MMM d, yyyy')}
+                        {invoice.invoiceDate ? `Issued ${format(new Date(invoice.invoiceDate), 'MMM d, yyyy')} • ` : ''}Work Period: {format(new Date(invoice.workPeriod.start), 'MMM d')} - {format(new Date(invoice.workPeriod.end), 'MMM d, yyyy')} •
+                        Due: {format(new Date(invoice.dueDate), 'MMM d, yyyy')}{invoice.paidAt ? ` • Paid ${format(new Date(invoice.paidAt), 'MMM d, yyyy')}` : ''}
                       </p>
                       {invoice.documents && invoice.documents.length > 0 && (
                         <p className="text-xs text-muted-foreground mt-1">

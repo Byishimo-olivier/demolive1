@@ -73,6 +73,19 @@ export const authApi = {
     return response.data;
   },
 
+  resendVerification: async (email: string): Promise<{ success: boolean; message: string }> => {
+    const response = await axiosInstance.post('/auth/resend-verification', { email });
+    return response.data;
+  },
+
+  // Register from a project invitation: the account is verified and joins the project
+  registerWithInvitation: async (
+    data: Omit<RegisterRequest, 'profilePicture'> & { invitationToken: string }
+  ): Promise<AuthResponse> => {
+    const response = await axiosInstance.post<AuthResponse>('/auth/register-with-invitation', data);
+    return response.data;
+  },
+
   // NEW: Register with company invitation
   registerWithCompanyInvitation: async (
     data: Omit<RegisterRequest, 'role' | 'profilePicture'> & { companyInvitationToken: string }

@@ -5,13 +5,13 @@ import { Label } from '@/components/ui/label';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Download, FileText, FileSpreadsheet, X, Loader2 } from 'lucide-react';
+import { Download, FileText, FileSpreadsheet, X, Loader2, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { Invoice } from '@/lib/finance-api';
-import { InvoiceType } from '@/types';
+import { InvoiceStatus, InvoiceType } from '@/types';
 
 interface InvoiceExportProps {
   open: boolean;
@@ -58,7 +58,7 @@ export function InvoiceExport({ open, onOpenChange, invoice }: InvoiceExportProp
     rows.push(['Invoice Number:', invoice.invoiceNumber, '', '']);
     rows.push(['Type:', invoice.type, '', '']);
     rows.push(['Status:', invoice.status, '', '']);
-    rows.push(['Issued:', new Date(invoice.issuedDate).toLocaleDateString(), '', '']);
+    rows.push(['Issued:', issuedOn(), '', '']);
     rows.push(['Due:', new Date(invoice.dueDate).toLocaleDateString(), '', '']);
     rows.push(['', '', '', '']);
 
@@ -72,9 +72,7 @@ export function InvoiceExport({ open, onOpenChange, invoice }: InvoiceExportProp
     // Add invoice items
     rows.push(headers);
     invoice.invoiceItems.forEach(item => {
-      const description = invoice.type === InvoiceType.BOQ_BASED
-        ? (typeof item.boqItemId === 'string' ? item.boqItemId : (item.boqItemId as any)?.description || 'N/A')
-        : item.description || '';
+      const description = itemDescription(item);
 
       const quantity = item.claimedQuantity || item.quantity || 0;
       const rate = item.rate || item.unitPrice || 0;
@@ -89,8 +87,8 @@ export function InvoiceExport({ open, onOpenChange, invoice }: InvoiceExportProp
 
     // Add total
     rows.push(['', '', 'Total Amount:', (invoice.totalAmount || 0).toString()]);
-    rows.push(['', '', 'Amount Paid:', (invoice.amountPaid || 0).toString()]);
-    rows.push(['', '', 'Balance:', ((invoice.totalAmount || 0) - (invoice.amountPaid || 0)).toString()]);
+    rows.push(['', '', 'Amount Paid:', (amountPaid() || 0).toString()]);
+    rows.push(['', '', 'Balance:', ((invoice.totalAmount || 0) - (amountPaid() || 0)).toString()]);
 
     if (options.includePaymentDetails) {
       rows.push(['', '', '', '']);
@@ -112,8 +110,20 @@ export function InvoiceExport({ open, onOpenChange, invoice }: InvoiceExportProp
     URL.revokeObjectURL(url);
   };
 
-  const exportToPDF = () => {
-    try {
+  // What a line is for: BoQ lines carry the item's description
+  function itemDescription(item: { description?: string; boqItemId?: unknown }): string {
+    if (item.description) return item.description;
+    const ref = item.boqItemId as { description?: string } | string | undefined;
+    return (ref && typeof ref === 'object' && ref.description) || (invoice.type === InvoiceType.BOQ_BASED ? 'BoQ item' : '');
+  }
+
+  // Invoices are paid in full: the whole total once marked paid
+  const amountPaid = () => (invoice.status === InvoiceStatus.PAID ? invoice.totalAmount || 0 : 0);
+
+  const issuedOn = () => new Date((invoice as any).invoiceDate || invoice.createdAt).toLocaleDateString();
+
+  const buildPDF = () => {
+    {
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.getWidth();
       const margin = 14;
@@ -135,7 +145,7 @@ export function InvoiceExport({ open, onOpenChange, invoice }: InvoiceExportProp
       yPos += 7;
       doc.text(`Status: ${invoice.status.toUpperCase()}`, margin, yPos);
       yPos += 7;
-      doc.text(`Issued: ${new Date(invoice.issuedDate).toLocaleDateString()}`, margin, yPos);
+      doc.text(`Issued: ${issuedOn()}`, margin, yPos);
       yPos += 7;
       doc.text(`Due: ${new Date(invoice.dueDate).toLocaleDateString()}`, margin, yPos);
 
@@ -154,9 +164,7 @@ export function InvoiceExport({ open, onOpenChange, invoice }: InvoiceExportProp
       // Invoice Items Table
       if (options.includeItemBreakdown) {
         const tableData = invoice.invoiceItems.map(item => {
-          const description = invoice.type === InvoiceType.BOQ_BASED
-            ? (typeof item.boqItemId === 'string' ? item.boqItemId : (item.boqItemId as any)?.description || 'N/A')
-            : item.description || '';
+          const description = itemDescription(item);
 
           const quantity = item.claimedQuantity || item.quantity || 0;
           const rate = item.rate || item.unitPrice || 0;
@@ -188,13 +196,13 @@ export function InvoiceExport({ open, onOpenChange, invoice }: InvoiceExportProp
               '',
               '',
               { content: 'Amount Paid:', styles: { fontStyle: 'bold' } },
-              { content: formatAmount(invoice.amountPaid || 0), styles: { fontStyle: 'bold' } }
+              { content: formatAmount(amountPaid() || 0), styles: { fontStyle: 'bold' } }
             ],
             [
               '',
               '',
               { content: 'Balance:', styles: { fontStyle: 'bold' } },
-              { content: formatAmount((invoice.totalAmount || 0) - (invoice.amountPaid || 0)), styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }
+              { content: formatAmount((invoice.totalAmount || 0) - (amountPaid() || 0)), styles: { fontStyle: 'bold', fillColor: [240, 240, 240] } }
             ]
           ],
           theme: 'grid',
@@ -258,10 +266,22 @@ export function InvoiceExport({ open, onOpenChange, invoice }: InvoiceExportProp
         );
       }
 
-      doc.save(generateFileName());
-    } catch (error) {
-      console.error('PDF export error:', error);
-      throw error;
+      return doc;
+    }
+  };
+
+  const exportToPDF = () => {
+    buildPDF().save(generateFileName());
+  };
+
+  // Open the PDF with the browser's print dialog
+  const printInvoice = () => {
+    const doc = buildPDF();
+    doc.autoPrint();
+    const url = doc.output('bloburl');
+    const win = window.open(url, '_blank');
+    if (!win) {
+      toast.error('Allow pop-ups for this site to print, or download the PDF instead');
     }
   };
 
@@ -275,7 +295,7 @@ export function InvoiceExport({ open, onOpenChange, invoice }: InvoiceExportProp
     worksheetData.push(['Invoice Number:', invoice.invoiceNumber]);
     worksheetData.push(['Type:', invoice.type]);
     worksheetData.push(['Status:', invoice.status]);
-    worksheetData.push(['Issued:', new Date(invoice.issuedDate).toLocaleDateString()]);
+    worksheetData.push(['Issued:', issuedOn()]);
     worksheetData.push(['Due:', new Date(invoice.dueDate).toLocaleDateString()]);
     worksheetData.push([]);
 
@@ -295,9 +315,7 @@ export function InvoiceExport({ open, onOpenChange, invoice }: InvoiceExportProp
 
       // Items
       invoice.invoiceItems.forEach(item => {
-        const description = invoice.type === InvoiceType.BOQ_BASED
-          ? (typeof item.boqItemId === 'string' ? item.boqItemId : (item.boqItemId as any)?.description || 'N/A')
-          : item.description || '';
+        const description = itemDescription(item);
 
         const quantity = item.claimedQuantity || item.quantity || 0;
         const rate = item.rate || item.unitPrice || 0;
@@ -312,8 +330,8 @@ export function InvoiceExport({ open, onOpenChange, invoice }: InvoiceExportProp
 
       // Totals
       worksheetData.push(['', '', 'Total Amount:', invoice.totalAmount || 0]);
-      worksheetData.push(['', '', 'Amount Paid:', invoice.amountPaid || 0]);
-      worksheetData.push(['', '', 'Balance:', (invoice.totalAmount || 0) - (invoice.amountPaid || 0)]);
+      worksheetData.push(['', '', 'Amount Paid:', amountPaid() || 0]);
+      worksheetData.push(['', '', 'Balance:', (invoice.totalAmount || 0) - (amountPaid() || 0)]);
       worksheetData.push([]);
     }
 
@@ -508,7 +526,7 @@ export function InvoiceExport({ open, onOpenChange, invoice }: InvoiceExportProp
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Balance:</span>
-                  <span className="font-medium">{formatAmount((invoice.totalAmount || 0) - (invoice.amountPaid || 0))}</span>
+                  <span className="font-medium">{formatAmount((invoice.totalAmount || 0) - (amountPaid() || 0))}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">File name:</span>
@@ -523,6 +541,21 @@ export function InvoiceExport({ open, onOpenChange, invoice }: InvoiceExportProp
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               <X className="mr-2 h-4 w-4" />
               Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                try {
+                  printInvoice();
+                } catch (error) {
+                  console.error('Print error:', error);
+                  toast.error('Failed to prepare the invoice for printing');
+                }
+              }}
+            >
+              <Printer className="mr-2 h-4 w-4" />
+              Print
             </Button>
             <Button onClick={handleExport} disabled={loading}>
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

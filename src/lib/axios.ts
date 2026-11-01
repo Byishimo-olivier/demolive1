@@ -1,6 +1,7 @@
 import axios, { AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 import toast from 'react-hot-toast';
 import { permissionService } from '../services/permission.service';
+import { isEmailNotVerifiedError } from '../utils/error-handler';
 
 // Use Vite's same-origin dev proxy locally so browser requests do not need
 // cross-origin CORS permission. Production builds continue using VITE_BASE_URL.
@@ -191,6 +192,25 @@ axiosInstance.interceptors.response.use(
       
       // Redirect to login page
       // window.location.href = '/login';
+      return Promise.reject(error);
+    }
+
+    // A session belonging to an unverified account: every request will fail, so send
+    // the user back to sign-in where they can request a new verification link
+    if (
+      error.response?.status === 403 &&
+      isEmailNotVerifiedError(error) &&
+      !error.config?.url?.includes('/auth/')
+    ) {
+      localStorage.removeItem('infrasoko_auth_token');
+      localStorage.removeItem('infrasoko_user');
+      localStorage.removeItem('infrasoko_active_profile');
+      localStorage.removeItem('infrasoko_active_project');
+      localStorage.removeItem('infrasoko_user_companies');
+      localStorage.removeItem('infrasoko_user_projects');
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login?verify=required';
+      }
       return Promise.reject(error);
     }
 

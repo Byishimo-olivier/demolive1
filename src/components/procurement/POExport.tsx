@@ -33,7 +33,10 @@ interface ExportOptions {
 }
 
 export function POExport({ open, onOpenChange, purchaseOrder }: POExportProps) {
-  const { currency, formatAmount } = useCurrency();
+  // Purchase orders are always issued in Rwandan francs (the agreed workflow), whatever the display setting
+  const { formatAmount: formatIn } = useCurrency();
+  const currency = 'RWF' as const;
+  const formatAmount = (amount: number) => formatIn(amount, currency);
   const [loading, setLoading] = useState(false);
   const [options, setOptions] = useState<ExportOptions>({
     format: "pdf",
@@ -87,6 +90,18 @@ export function POExport({ open, onOpenChange, purchaseOrder }: POExportProps) {
       "",
     ]);
     rows.push(["Payment Terms:", purchaseOrder.paymentTerms, "", "", "", ""]);
+    rows.push(["Status:", isApproved ? "APPROVED" : "DRAFT (not approved)", "", "", "", ""]);
+    if (isApproved && purchaseOrder.approval?.signature) {
+      const sig = purchaseOrder.approval.signature;
+      rows.push([
+        "Approved by:",
+        `${sig.signerName}${sig.signerTitle ? `, ${sig.signerTitle}` : ""}`,
+        purchaseOrder.approval.approvedAt ? new Date(purchaseOrder.approval.approvedAt).toLocaleString() : "",
+        "",
+        "",
+        "",
+      ]);
+    }
     rows.push(["", "", "", "", "", ""]);
 
     if (options.includeSupplierDetails) {
@@ -154,6 +169,8 @@ export function POExport({ open, onOpenChange, purchaseOrder }: POExportProps) {
     URL.revokeObjectURL(url);
   };
 
+  const isApproved = purchaseOrder.status === "Approved";
+
   const exportToPDF = () => {
     try {
       const doc = new jsPDF();
@@ -190,6 +207,10 @@ export function POExport({ open, onOpenChange, purchaseOrder }: POExportProps) {
       );
       yPos += 7;
       doc.text(`Payment Terms: ${purchaseOrder.paymentTerms}`, margin, yPos);
+      yPos += 7;
+      doc.setFont("helvetica", "bold");
+      doc.text(`Status: ${isApproved ? "APPROVED" : "DRAFT (not approved)"}`, margin, yPos);
+      doc.setFont("helvetica", "normal");
 
       // Supplier Details
       if (options.includeSupplierDetails) {
@@ -286,10 +307,47 @@ export function POExport({ open, onOpenChange, purchaseOrder }: POExportProps) {
         doc.text(instructionLines, margin, yPos);
       }
 
+      // Approval and signature
+      if (isApproved && purchaseOrder.approval?.signature) {
+        const sig = purchaseOrder.approval.signature;
+        yPos += 16;
+        if (yPos > 235) {
+          doc.addPage();
+          yPos = 20;
+        }
+        doc.setFont("helvetica", "bold");
+        doc.text("Approved by:", margin, yPos);
+        doc.setFont("helvetica", "normal");
+        try {
+          doc.addImage(sig.image, "PNG", margin, yPos + 3, 60, 22);
+        } catch {
+          // An unreadable image still leaves the written approval below
+        }
+        doc.line(margin, yPos + 27, margin + 70, yPos + 27);
+        doc.text(`${sig.signerName}${sig.signerTitle ? `, ${sig.signerTitle}` : ""}`, margin, yPos + 33);
+        if (purchaseOrder.approval.approvedAt) {
+          doc.setFontSize(10);
+          doc.text(`Signed on ${new Date(purchaseOrder.approval.approvedAt).toLocaleString()}`, margin, yPos + 39);
+          doc.setFontSize(12);
+        }
+      }
+
       // Footer
       const pageCount = doc.getNumberOfPages();
       for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
+        // Not yet approved: mark every page as a draft
+        if (!isApproved) {
+          const pageHeight = doc.internal.pageSize.getHeight();
+          const GState = (doc as any).GState;
+          if (GState) doc.setGState(new GState({ opacity: 0.12 }));
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(110);
+          doc.setTextColor(200, 30, 30);
+          doc.text("DRAFT", pageWidth / 2, pageHeight / 2, { align: "center", angle: 45 });
+          if (GState) doc.setGState(new GState({ opacity: 1 }));
+          doc.setTextColor(0, 0, 0);
+        }
         doc.setFontSize(10);
         doc.setFont("helvetica", "normal");
         doc.text(
@@ -326,6 +384,15 @@ export function POExport({ open, onOpenChange, purchaseOrder }: POExportProps) {
       new Date(purchaseOrder.deliveryDate).toLocaleDateString(),
     ]);
     worksheetData.push(["Payment Terms:", purchaseOrder.paymentTerms]);
+    worksheetData.push(["Status:", isApproved ? "APPROVED" : "DRAFT (not approved)"]);
+    if (isApproved && purchaseOrder.approval?.signature) {
+      const sig = purchaseOrder.approval.signature;
+      worksheetData.push([
+        "Approved by:",
+        `${sig.signerName}${sig.signerTitle ? `, ${sig.signerTitle}` : ""}`,
+        purchaseOrder.approval.approvedAt ? new Date(purchaseOrder.approval.approvedAt).toLocaleString() : "",
+      ]);
+    }
     worksheetData.push([]);
 
     if (options.includeSupplierDetails) {
@@ -397,7 +464,7 @@ export function POExport({ open, onOpenChange, purchaseOrder }: POExportProps) {
     if (worksheet["A1"]) worksheet["A1"].s = headerStyle;
 
     // Format currency cells
-    const currencyFormat = currency === 'USD' ? '"$"#,##0.00' : '"RWF "#,##0';
+    const currencyFormat = '"RWF "#,##0';
     purchaseOrder.materialList.forEach((_, idx) => {
       const rowNum = 10 + (options.includeSupplierDetails ? 3 : 0) + idx;
       const priceCell = `D${rowNum}`;

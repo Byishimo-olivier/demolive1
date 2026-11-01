@@ -7,7 +7,7 @@ import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { financeApi, type Budget, type CreateBudgetRequest } from '../../lib/finance-api';
 import { BudgetApprovalStatus } from '../../types';
-import { Plus, Edit, DollarSign, CheckCircle, XCircle } from 'lucide-react';
+import { Plus, Edit, CheckCircle, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
 import { Can } from '../PermissionGate';
@@ -35,6 +35,7 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
     equipmentBudget: 0,
     fuelBudget: 0,
     overheadsBudget: 0,
+    subcontractorsBudget: 0,
       totalPlannedBudget: 0,
     notes: '',
     approvalStatus: BudgetApprovalStatus.PENDING,
@@ -44,7 +45,7 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
     e.preventDefault();
     
     // Calculate total
-    const total = formData.materialsBudget + formData.laborBudget + formData.equipmentBudget + formData.fuelBudget + formData.overheadsBudget;
+    const total = formData.materialsBudget + formData.laborBudget + formData.equipmentBudget + formData.fuelBudget + formData.overheadsBudget + (formData.subcontractorsBudget || 0);
     const dataWithTotal = { ...formData, totalPlannedBudget: total };
     
     try {
@@ -74,6 +75,7 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
       equipmentBudget: budget.equipmentBudget,
       fuelBudget: budget.fuelBudget,
       overheadsBudget: budget.overheadsBudget,
+      subcontractorsBudget: budget.subcontractorsBudget || 0,
       totalPlannedBudget: budget.totalPlannedBudget,
       notes: budget.notes || '',
       approvalStatus: budget.approvalStatus as BudgetApprovalStatus,
@@ -100,6 +102,7 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
       equipmentBudget: 0,
       fuelBudget: 0,
       overheadsBudget: 0,
+      subcontractorsBudget: 0,
       totalPlannedBudget: 0,
       notes: '',
       approvalStatus: BudgetApprovalStatus.PENDING,
@@ -109,7 +112,7 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
   };
 
   const calculateTotal = () => {
-    return formData.materialsBudget + formData.laborBudget + formData.equipmentBudget + formData.fuelBudget + formData.overheadsBudget;
+    return formData.materialsBudget + formData.laborBudget + formData.equipmentBudget + formData.fuelBudget + formData.overheadsBudget + (formData.subcontractorsBudget || 0);
   };
 
   const getApprovalStatusColor = (status: string) => {
@@ -175,13 +178,12 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="materialsBudget">Materials Budget</Label>
+                  <Label htmlFor="materialsBudget">Materials Budget (RWF)</Label>
                   <div className="relative">
-                    <DollarSign className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                               <Input
                       id="materialsBudget"
                       type="number"
-                      className="pl-10"
+                      min="0"
                       value={formData.materialsBudget}
                       onChange={(e) => setFormData({ ...formData, materialsBudget: parseFloat(e.target.value) || 0 })}
                       required
@@ -190,13 +192,12 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
                 </div>
 
                 <div>
-                  <Label htmlFor="laborBudget">Labor Budget</Label>
+                  <Label htmlFor="laborBudget">Labor Budget (RWF)</Label>
                   <div className="relative">
-                    <DollarSign className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                                 <Input
                       id="laborBudget"
                                   type="number"
-                      className="pl-10"
+                      min="0"
                       value={formData.laborBudget}
                       onChange={(e) => setFormData({ ...formData, laborBudget: parseFloat(e.target.value) || 0 })}
                       required
@@ -207,13 +208,12 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="equipmentBudget">Equipment Budget</Label>
+                  <Label htmlFor="equipmentBudget">Equipment Budget (RWF)</Label>
                   <div className="relative">
-                    <DollarSign className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                     <Input
                       id="equipmentBudget"
                       type="number"
-                      className="pl-10"
+                      min="0"
                       value={formData.equipmentBudget}
                       onChange={(e) => setFormData({ ...formData, equipmentBudget: parseFloat(e.target.value) || 0 })}
                       required
@@ -222,13 +222,12 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
                 </div>
 
                 <div>
-                  <Label htmlFor="fuelBudget">Fuel Budget</Label>
+                  <Label htmlFor="fuelBudget">Fuel Budget (RWF)</Label>
                   <div className="relative">
-                    <DollarSign className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                           <Input
                       id="fuelBudget"
                             type="number"
-                      className="pl-10"
+                      min="0"
                       value={formData.fuelBudget}
                       onChange={(e) => setFormData({ ...formData, fuelBudget: parseFloat(e.target.value) || 0 })}
                       required
@@ -238,18 +237,28 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
               </div>
 
               <div>
-                <Label htmlFor="overheadsBudget">Overheads Budget</Label>
+                <Label htmlFor="overheadsBudget">Overheads Budget (RWF)</Label>
                 <div className="relative">
-                  <DollarSign className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
                     id="overheadsBudget"
                     type="number"
-                    className="pl-10"
+                    min="0"
                     value={formData.overheadsBudget}
                     onChange={(e) => setFormData({ ...formData, overheadsBudget: parseFloat(e.target.value) || 0 })}
                     required
                   />
                 </div>
+              </div>
+
+              <div>
+                <Label htmlFor="subcontractorsBudget">Subcontractors Budget (RWF)</Label>
+                <Input
+                  id="subcontractorsBudget"
+                  type="number"
+                  min="0"
+                  value={formData.subcontractorsBudget ?? 0}
+                  onChange={(e) => setFormData({ ...formData, subcontractorsBudget: parseFloat(e.target.value) || 0 })}
+                />
               </div>
 
               <div className="p-4 bg-gray-50 rounded-lg">
@@ -365,6 +374,10 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
                   <div className="flex justify-between">
                     <span className="text-sm">Overheads:</span>
                     <span className="text-sm font-medium">{formatAmount(budget.overheadsBudget)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm">Subcontractors:</span>
+                    <span className="text-sm font-medium">{formatAmount(budget.subcontractorsBudget || 0)}</span>
                   </div>
                   <div className="flex justify-between border-t pt-2">
                     <span className="text-sm font-semibold">Total:</span>

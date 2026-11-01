@@ -100,7 +100,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
           className={cn(
             'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150',
             isActive
-              ? 'bg-blue-50 text-blue-700'
+              ? 'bg-gray-900 text-white'
               : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50',
             isCollapsed && 'justify-center px-2'
           )}
@@ -108,7 +108,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
           <Icon
             className={cn(
               'h-[18px] w-[18px] flex-shrink-0',
-              isActive ? 'text-blue-600' : 'text-gray-400'
+              isActive ? 'text-orange-500' : 'text-gray-400'
             )}
           />
           <AnimatePresence>
@@ -124,7 +124,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
             )}
           </AnimatePresence>
           {isActive && !isCollapsed && (
-            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-600" />
+            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-orange-500" />
           )}
         </NavLink>
       </div>

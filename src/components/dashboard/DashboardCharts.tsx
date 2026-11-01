@@ -547,7 +547,7 @@ export function DashboardCharts() {
       dashboardData.summary.projectsByStatus['Planning'] || 0
     ],
     labels: ['In Progress', 'Completed', 'Planning'],
-    colors: ['#3B82F6', '#10B981', '#F59E0B'],
+    colors: ['#EA580C', '#10B981', '#F59E0B'],
     legend: {
       position: 'bottom',
       fontFamily: 'inherit',
@@ -657,7 +657,7 @@ export function DashboardCharts() {
         data: [dashboardData.procurementAnalytics.purchaseOrderCount],
       },
     ],
-    colors: ['#8B5CF6', '#10B981'],
+    colors: ['#111827', '#10B981'],
     plotOptions: {
       bar: {
         horizontal: false,
@@ -734,7 +734,7 @@ export function DashboardCharts() {
         barHeight: '50%',
       }
     },
-    colors: ['#6366F1'],
+    colors: ['#F97316'],
     dataLabels: {
       enabled: true,
       formatter: (val) => `${val}%`,

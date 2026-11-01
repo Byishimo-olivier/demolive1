@@ -6,6 +6,12 @@ import type { Project, UserRole } from '../types';
 export interface ProjectCreateRequest {
   projectDescription: string;
   budget: number;
+  // Client and contract
+  clientName?: string;
+  contractAmount?: number;
+  contactName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
   projectCode: string;
   name: string;
   progress: number;
@@ -14,6 +20,58 @@ export interface ProjectCreateRequest {
   file?: File;
   description: string;
   team: string[];
+}
+
+interface ApiEnvelope<T> {
+  success: boolean;
+  message: string;
+  data: T;
+}
+
+export interface ProjectInvitationDetails {
+  email: string;
+  role: string;
+  projectId: string;
+  projectName: string;
+  expiresAt: string;
+  accountExists: boolean;
+}
+
+export interface ProjectFinancials {
+  contractAmount: number;
+  budget: number;
+  expenses: {
+    approved: number;
+    pending: number;
+    byCategory: { category: string; planned: number; spent: number }[];
+  };
+  invoices: { invoiced: number; paid: number; outstanding: number };
+  // Contract value minus approved expenses so far
+  profitLoss: number;
+  marginPercent: number | null;
+  // Contract value minus the whole budget
+  projectedProfit: number;
+  budgetRemaining: number;
+  // Paid invoices minus approved expenses
+  cashPosition: number;
+  // Only when a date range was asked for
+  period?: PeriodFinancials;
+}
+
+/** Totals for a selected period: approved expenses dated in it, invoices issued / paid in it */
+export interface PeriodFinancials {
+  startDate: string | null;
+  endDate: string | null;
+  expenses: number;
+  expenseCount: number;
+  expensesByCategory: { category: string; spent: number }[];
+  invoiced: number;
+  invoiceCount: number;
+  paid: number;
+  // Invoiced minus expenses
+  profitLoss: number;
+  // Paid minus expenses
+  cashFlow: number;
 }
 
 export interface ProjectInviteRequest {
@@ -100,6 +158,18 @@ export const projectApi = {
     return response.data;
   },
 
+  // Contract value, budget, expenses, invoicing and profit / loss
+  getProjectFinancials: async (
+    id: string,
+    range?: { startDate?: string; endDate?: string }
+  ): Promise<{ success: boolean; message: string; data: ProjectFinancials }> => {
+    const params: Record<string, string> = {};
+    if (range?.startDate) params.startDate = range.startDate;
+    if (range?.endDate) params.endDate = range.endDate;
+    const response = await api.get(`/projects/${id}/financials`, { params });
+    return response.data as { success: boolean; message: string; data: ProjectFinancials };
+  },
+
   getProject: async (id: string): Promise<ProjectResponse> => {
     const response = await api.get<ProjectResponse>(`/projects/${id}`, {
       requiresPermission: [Permissions.VIEW_PROJECT, Permissions.COMPANY_VIEW_PROJECTS]
@@ -145,14 +215,20 @@ export const projectApi = {
   },
 
   invite: async (data: { projectId: string; email: string; role: UserRole }) => {
-    const response = await api.post('/projects/invitation', data, {
+    const response = await api.post<ApiEnvelope<{ email: string; role: string; emailSent: boolean; inviteLink?: string }>>('/projects/invitation', data, {
       requiresPermission: Permissions.MANAGE_PROJECT_TEAM
     });
     return response.data;
   },
 
+  // Public: what an invitation is for, shown on the sign-up page
+  getInvitationDetails: async (token: string): Promise<ProjectInvitationDetails> => {
+    const response = await api.get<ApiEnvelope<ProjectInvitationDetails>>(`/projects/invitation/details/${encodeURIComponent(token)}`);
+    return response.data.data;
+  },
+
   acceptInvitation: async (token: string) => {
-    const response = await api.post('/projects/invitation/accept', { token });
+    const response = await api.post<ApiEnvelope<{ projectId: string; projectName: string; role: string }>>('/projects/invitation/accept', { token });
     return response.data;
   },
 

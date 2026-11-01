@@ -1,3 +1,5 @@
+import { DecisionHistory } from './DecisionHistory';
+import { formatCurrency } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -28,7 +30,7 @@ export function MaterialRequestDetailsModal({
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold flex items-center justify-between">
             <span>Material Request Details</span>
-            <Badge variant={request.status === 'approved' ? 'default' : request.status === 'rejected' ? 'destructive' : 'secondary'} className="capitalize mr-4">
+            <Badge variant={request.status === 'Approved' ? 'default' : request.status === 'Rejected' ? 'destructive' : 'secondary'} className="capitalize mr-4">
               {request.status}
             </Badge>
           </DialogTitle>
@@ -78,7 +80,7 @@ export function MaterialRequestDetailsModal({
                         <TableCell className="font-medium">{item.materialName}</TableCell>
                         <TableCell className="capitalize">{item.category}</TableCell>
                         <TableCell>{item.quantity} {item.unit}</TableCell>
-                        <TableCell>${item.estimatedCost.toLocaleString()}</TableCell>
+                        <TableCell>{formatCurrency(item.estimatedCost, 'RWF')}</TableCell>
                         <TableCell>{format(new Date(item.requiredByDate), 'PP')}</TableCell>
                       </TableRow>
                     ))}
@@ -86,6 +88,8 @@ export function MaterialRequestDetailsModal({
                 </Table>
               </div>
             </div>
+
+            <DecisionHistory entries={request.history} />
           </div>
         </div>
       </DialogContent>

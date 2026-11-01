@@ -7,7 +7,6 @@ import { Spinner } from '@/components/Spinner';
 import { 
   CheckCircle2, 
   XCircle, 
-  Building2, 
   Users, 
   ArrowRight,
   Briefcase,
@@ -15,6 +14,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { motion } from 'motion/react';
+import { BrandLogo } from '@/components/BrandLogo';
 
 export default function CompanyInvitationAccept() {
   const { token } = useParams<{ token: string }>();
@@ -87,7 +87,8 @@ export default function CompanyInvitationAccept() {
   }, [token, user, authLoading, refreshUserCompanies]);
 
   const handleGoToDashboard = () => navigate('/dashboard');
-  const handleGoToLogin = () => navigate('/login');
+  // Come back here after signing in so the invitation is accepted
+  const handleGoToLogin = () => navigate(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
 
   return (
     <div className="min-h-screen flex">
@@ -109,10 +110,7 @@ export default function CompanyInvitationAccept() {
             transition={{ delay: 0.1 }}
           >
             <Link to="/" className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center">
-                <Building2 className="h-5 w-5 text-gray-900" />
-              </div>
-              <span className="text-xl font-bold text-white font-heading">InfraSoko</span>
+              <BrandLogo onDark />
             </Link>
           </motion.div>
 
@@ -177,10 +175,7 @@ export default function CompanyInvitationAccept() {
           {/* Mobile Logo */}
           <div className="lg:hidden flex items-center justify-center gap-2 mb-12">
             <Link to="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gray-900 flex items-center justify-center">
-                <Building2 className="h-4 w-4 text-white" />
-              </div>
-              <span className="text-lg font-bold text-gray-900 font-heading">InfraSoko</span>
+              <BrandLogo />
             </Link>
           </div>
 

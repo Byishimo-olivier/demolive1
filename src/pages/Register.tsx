@@ -10,35 +10,39 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { authApi } from '@/lib/auth-api';
+import { projectApi, type ProjectInvitationDetails } from '@/lib/project-api';
+import { useAuth } from '@/contexts/AuthContext';
+import { humanizeLabel } from '@/lib/utils';
 import { getErrorMessage } from '@/utils/error-handler';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { 
   Upload, 
   X, 
   ArrowRight, 
-  Building2, 
   Users, 
   Mail,
   Lock,
   User,
   Check
 } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import * as z from 'zod';
 import { motion } from 'motion/react';
+import { BrandLogo } from '@/components/BrandLogo';
 
 const formSchema = z.object({
   email: z.string().email('Invalid email address'),
+  // Same rule as the server
   password: z
     .string()
     .min(8, 'Password must be at least 8 characters')
-    .regex(
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
-      'Password must contain at least one uppercase letter, one lowercase letter, and one number'
-    ),
+    .regex(/[a-z]/, 'Password must contain a lowercase letter')
+    .regex(/[A-Z]/, 'Password must contain an uppercase letter')
+    .regex(/\d/, 'Password must contain a number')
+    .regex(/[^A-Za-z0-9]/, 'Password must contain a symbol (e.g. ! @ # ?)'),
   fullName: z.string().min(2, 'Full name is required'),
 });
 
@@ -49,7 +53,11 @@ export function Register() {
   const location = useLocation();
   const params = new URLSearchParams(location.search);
   const companyInvitationToken = params.get('companyInvitationToken');
+  const invitationToken = params.get('invitationToken');
+  const { signIn } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const [invite, setInvite] = useState<ProjectInvitationDetails | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
   const [profilePicture, setProfilePicture] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -62,6 +70,27 @@ export function Register() {
       fullName: '',
     },
   });
+
+  // A project invitation: show what it is for and lock the email it was sent to
+  useEffect(() => {
+    if (!invitationToken) return;
+    let cancelled = false;
+    projectApi
+      .getInvitationDetails(invitationToken)
+      .then((details) => {
+        if (cancelled) return;
+        setInvite(details);
+        form.setValue('email', details.email);
+      })
+      .catch((error) => {
+        if (!cancelled) setInviteError(getErrorMessage(error, 'This invitation is invalid or has expired.'));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [invitationToken, form]);
+
+  const acceptPath = invitationToken ? `/projects/invitation/accept/${invitationToken}` : null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -81,20 +110,38 @@ export function Register() {
   };
 
   const onSubmit = async (data: RegisterFormValues) => {
-    if (!companyInvitationToken) {
-      toast.error('Use the company invitation link to create your account.');
+    if (!companyInvitationToken && !invitationToken) {
+      toast.error('Use the invitation link you received to create your account.');
+      return;
+    }
+    if (invitationToken && !invite) {
+      toast.error(inviteError || 'This invitation could not be loaded.');
       return;
     }
 
     setIsLoading(true);
     try {
-      if (companyInvitationToken) {
+      if (invitationToken && invite) {
+        // Invited accounts are verified and already on the project, so go straight in
+        await authApi.registerWithInvitation({
+          email: invite.email,
+          password: data.password,
+          fullName: data.fullName,
+          invitationToken,
+        });
+        toast.success(`Welcome! You've joined ${invite.projectName}.`);
+        await signIn(invite.email, data.password, `/projects/${invite.projectId}`);
+        return;
+      } else if (companyInvitationToken) {
         await authApi.registerWithCompanyInvitation({
           email: data.email,
           password: data.password,
           fullName: data.fullName,
           companyInvitationToken,
         });
+        toast.success('Account created. Welcome to the team!');
+        await signIn(data.email, data.password, '/dashboard');
+        return;
       } else {
         await authApi.register({
           email: data.email,
@@ -132,7 +179,9 @@ export function Register() {
         <div>
           <p className="font-medium text-blue-900 text-sm">You've been invited!</p>
           <p className="text-sm text-blue-700 mt-0.5">
-            Complete your registration to join the team.
+            {invite
+              ? <>Create your account to join <span className="font-medium">{invite.projectName}</span> as {humanizeLabel(invite.role)}.</>
+              : 'Complete your registration to join the team.'}
           </p>
         </div>
       </div>
@@ -159,10 +208,7 @@ export function Register() {
             transition={{ delay: 0.1 }}
           >
             <Link to="/" className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center">
-                <Building2 className="h-5 w-5 text-gray-900" />
-              </div>
-              <span className="text-xl font-bold text-white font-heading">InfraSoko</span>
+              <BrandLogo onDark />
             </Link>
           </motion.div>
 
@@ -232,10 +278,7 @@ export function Register() {
             className="lg:hidden flex items-center justify-center gap-2 mb-12"
           >
             <Link to="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gray-900 flex items-center justify-center">
-                <Building2 className="h-4 w-4 text-white" />
-              </div>
-              <span className="text-lg font-bold text-gray-900 font-heading">InfraSoko</span>
+              <BrandLogo />
             </Link>
           </motion.div>
 
@@ -278,7 +321,26 @@ export function Register() {
                   </p>
                 </div>
 
-                {companyInvitationToken && <InvitationBanner />}
+                {(companyInvitationToken || invite) && <InvitationBanner />}
+
+                {inviteError && (
+                  <div className="mb-6 rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
+                    {inviteError} Ask the project owner to send you a new invitation.
+                  </div>
+                )}
+
+                {invite?.accountExists && acceptPath && (
+                  <div className="mb-6 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+                    <p>An account for {invite.email} already exists.</p>
+                    <Button
+                      type="button"
+                      className="mt-3 h-10 w-full rounded-lg bg-gray-900 text-white hover:bg-gray-800"
+                      onClick={() => navigate(`/login?redirect=${encodeURIComponent(acceptPath)}`)}
+                    >
+                      Sign in to accept the invitation
+                    </Button>
+                  </div>
+                )}
 
                 <Form {...form}>
                   <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
@@ -318,7 +380,8 @@ export function Register() {
                               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                               <Input 
                                 placeholder="name@example.com" 
-                                className="pl-10 h-11 bg-white border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-900/10 focus:border-gray-900"
+                                className="pl-10 h-11 bg-white border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-900/10 focus:border-gray-900 read-only:bg-gray-50 read-only:text-gray-600"
+                                readOnly={!!invite}
                                 {...field} 
                               />
                             </div>
@@ -349,13 +412,14 @@ export function Register() {
                           </FormControl>
                           <FormMessage />
                           <p className="text-xs text-gray-500 mt-1">
-                            Must be 8+ characters with uppercase, lowercase, and number
+                            Must be 8+ characters with uppercase, lowercase, a number and a symbol
                           </p>
                         </FormItem>
                       )}
                     />
 
-                    {/* Profile Picture Upload */}
+                    {/* Profile Picture Upload (invitation sign-ups don't send it) */}
+                    {!companyInvitationToken && !invitationToken && (
                     <div className="space-y-2">
                       <label className="text-sm font-medium text-gray-700">
                         Profile photo <span className="text-gray-400 font-normal">(optional)</span>
@@ -395,11 +459,12 @@ export function Register() {
                         </label>
                       </div>
                     </div>
+                    )}
 
                     <Button
                       type="submit"
                       className="w-full h-11 bg-gray-900 hover:bg-gray-800 text-white rounded-lg font-medium"
-                      disabled={isLoading}
+                      disabled={isLoading || !!inviteError || !!invite?.accountExists}
                     >
                       {isLoading ? (
                         <>
@@ -431,7 +496,7 @@ export function Register() {
                   <Button
                     variant="outline"
                     className="w-full h-11 mt-6 border-gray-200 hover:bg-gray-50 rounded-lg font-medium"
-                    onClick={() => navigate('/login')}
+                    onClick={() => navigate(acceptPath ? `/login?redirect=${encodeURIComponent(acceptPath)}` : '/login')}
                   >
                     Sign in instead
                   </Button>

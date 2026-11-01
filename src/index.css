@@ -15,7 +15,7 @@
     --card-foreground: 222.2 84% 4.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
+    --primary: 222.2 47.4% 11.2%; /* Black (gray-900) */
     --primary-foreground: 210 40% 98%;
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
@@ -27,13 +27,13 @@
     --destructive-foreground: 210 40% 98%;
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
+    --ring: 24.6 95% 53.1%; /* Orange-500 */
     --radius: 0.5rem;
 
      /* Theme colors */
-    --theme-primary: 221.2 83.2% 53.3%; /* Blue-600 */
-    --theme-primary-light: 213.1 93.9% 67.8%; /* Blue-400 */
-    --theme-accent: 258.3 89.5% 66.3%; /* Violet-500 */
+    --theme-primary: 20.5 90.2% 48.2%; /* Orange-600 */
+    --theme-primary-light: 27 96% 61%; /* Orange-400 */
+    --theme-accent: 222.2 47.4% 11.2%; /* Black (gray-900) */
     --theme-success: 160 84% 39.4%; /* Emerald-600 */
     --theme-warning: 32 95% 44%; /* Amber-600 */
     --theme-danger: 0 72.2% 50.6%; /* Red-600 */
@@ -56,11 +56,11 @@
 
 @layer components {
    .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-violet-600;
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-orange-500 to-orange-700;
   }
 
   .text-gradient-warm {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-violet-500;
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-orange-600;
   }
 
   .glass-card {
@@ -76,7 +76,7 @@
   }
 
   .bg-theme-gradient {
-    @apply bg-gradient-to-r from-blue-600 to-violet-600;
+    @apply bg-gradient-to-r from-orange-500 to-orange-700;
   }
 
   .bg-theme-gradient-subtle {

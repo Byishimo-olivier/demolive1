@@ -23,7 +23,7 @@ type AuthContextType = {
   personalProfile: User | null;
   organizationProfiles: Company[];
   currentCompanyRole: string | null;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string, redirectTo?: string) => Promise<void>;
   signOut: () => Promise<void>;
   switchToProfile: (profileType: ProfileType, profileId: string) => Promise<void>;
   refreshUserCompanies: (activateCompanyId?: string) => Promise<void>;
@@ -32,6 +32,17 @@ type AuthContextType = {
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// Only in-app paths, so a crafted link can't send the user to another site
+function safeRedirect(path?: string | null): string | null {
+  if (!path || !path.startsWith('/') || path.startsWith('//') || path.startsWith('/\\')) return null;
+  return path;
+}
+
+// The ?redirect= the user was sent to login with
+function redirectTarget(): string | null {
+  return safeRedirect(new URLSearchParams(window.location.search).get('redirect'));
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -87,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Redirect if on auth pages
         const authPages = ['/login', '/register', '/'];
         if (authPages.includes(location.pathname)) {
-          navigate('/dashboard');
+          navigate(redirectTarget() ?? '/dashboard');
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
@@ -191,13 +202,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const handleSignIn = async (email: string, password: string) => {
+  const handleSignIn = async (email: string, password: string, redirectTo?: string) => {
     const response = await authApi.login({ email, password });
     localStorage.setItem('infrasoko_auth_token', response.data.token);
     localStorage.setItem('infrasoko_user', JSON.stringify(response.data.user));
     setUser(response.data.user);
     await loadUserCompaniesAndProfile(response.data.user);
-    navigate('/dashboard');
+    // Back to where the user was going (e.g. accepting an invitation)
+    navigate(safeRedirect(redirectTo) ?? redirectTarget() ?? '/dashboard');
   };
 
   const handleSignOut = async () => {

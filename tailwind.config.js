@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 import animate from "tailwindcss-animate"
+import defaultColors from "tailwindcss/colors"
 
 export default {
   darkMode: ["class"],
@@ -39,6 +40,11 @@ export default {
         },
       },
       colors: {
+        // Brand: black and orange. Accent palettes used across the app all render as orange
+        blue: defaultColors.orange,
+        indigo: defaultColors.orange,
+        violet: defaultColors.orange,
+        purple: defaultColors.orange,
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

@@ -75,11 +75,15 @@ export function BOQForm({ boq, onSuccess, onCancel }: BOQFormProps) {
         projectId: currentProject._id,
         sections: sections.map(section => ({
           sectionName: section.sectionName,
+          // Keep each item's id, recorded progress and import so edits don't lose them
           items: section.items.map(item => ({
+            ...(item._id ? { _id: item._id } : {}),
             description: item.description,
             unit: item.unit,
             quantity: item.quantity,
-            rate: item.rate
+            rate: item.rate,
+            ...(item.completedQuantity !== undefined ? { completedQuantity: item.completedQuantity } : {}),
+            ...(item.importId ? { importId: item.importId } : {}),
           }))
         }))
       };

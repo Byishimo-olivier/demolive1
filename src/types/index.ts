@@ -19,6 +19,7 @@ export enum ExpenseCategory {
   EQUIPMENT = "equipment",
   FUEL = "fuel",
   OVERHEADS = "overheads",
+  SUBCONTRACTORS = "subcontractors",
 }
 
 export enum InvoiceStatus {
@@ -180,6 +181,12 @@ export type Project = {
   }>;
   progress: number;
   budget: number;
+  // Client and contract
+  clientName?: string;
+  contractAmount?: number;
+  contactName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
   createdBy: string;
   updatedBy: string;
   documents?: {
@@ -199,6 +206,12 @@ export type ProjectFormData = {
   team: string[];
   progress: number;
   budget: number;
+  // Client and contract
+  clientName?: string;
+  contractAmount?: number;
+  contactName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
   file?: File;
   description: string;
 };
@@ -206,6 +219,7 @@ export type ProjectFormData = {
 export type MaterialRequest = {
   _id: string;
   projectId: string;
+  requestType?: 'Material' | 'Other';
   requesterName: string;
   department: Department;
   requestDate: string;
@@ -220,7 +234,16 @@ export type MaterialRequest = {
   }[];
   purpose: string;
   priorityLevel: PriorityLevel;
-  status: "pending" | "approved" | "rejected";
+  // Approval workflow (requests saved before it existed have no status: treat as Pending)
+  status: "Pending" | "Approved" | "Rejected";
+  requestedBy?: { _id: string; fullName?: string; email?: string } | string | null;
+  approval?: {
+    reviewedBy?: { _id: string; fullName?: string; email?: string } | string | null;
+    reviewedAt?: string;
+    comment?: string;
+  };
+  // Traceable record of decisions
+  history?: { action: string; byName?: string; at: string; comment?: string }[];
   createdAt: string;
   updatedAt: string;
 };
@@ -245,6 +268,16 @@ export type PurchaseOrder = {
   paymentTerms: PaymentTerms;
   specialInstructions?: string;
   documentFilePath?: string;
+  // Draft until the approver signs it
+  status?: 'Draft' | 'Approved';
+  approval?: {
+    approvedBy?: { _id: string; fullName?: string; email?: string } | string | null;
+    approvedAt?: string;
+    comment?: string;
+    signature?: { signerName: string; signerTitle?: string; image: string };
+  };
+  // Traceable record of decisions
+  history?: { action: string; byName?: string; at: string; comment?: string }[];
   createdAt: string;
   updatedAt: string;
 };

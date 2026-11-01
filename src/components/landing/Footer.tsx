@@ -1,7 +1,8 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Sparkles, Mail, MapPin, Phone, Twitter, Linkedin, Github, Youtube, ArrowRight, Heart } from 'lucide-react';
+import { Mail, MapPin, Phone, Twitter, Linkedin, Github, Youtube, ArrowRight, Heart } from 'lucide-react';
 import { Button } from '../ui/button';
+import { BrandLogo } from '@/components/BrandLogo';
 
 const footerLinks = {
   product: ['Features', 'Pricing', 'Integrations', 'Changelog', 'Roadmap'],
@@ -82,12 +83,7 @@ export function Footer() {
               className="mb-6"
             >
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-violet-600 flex items-center justify-center shadow-lg shadow-blue-500/25">
-                  <Sparkles className="h-5 w-5 text-white" />
-                </div>
-                <span className="text-2xl font-bold text-white font-heading">
-                  InfraSoko
-                </span>
+                <BrandLogo onDark />
               </div>
               <p className="text-gray-400 mb-6 max-w-xs">
                 Transforming infrastructure project management with innovative solutions for the modern era.

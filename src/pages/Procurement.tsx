@@ -6,20 +6,18 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { MaterialRequestForm } from '@/components/procurement/MaterialRequestForm';
 import { PurchaseOrderForm } from '@/components/procurement/PurchaseOrderForm';
-import { GRNModal } from '@/components/procurement/GRNModal';
 import { GRNDetailsModal } from '@/components/procurement/GRNDetailsModal';
+import { DeliveriesPanel } from '@/components/procurement/receiving/DeliveriesPanel';
 import { procurementApi, type MaterialRequest, type PurchaseOrder } from '@/lib/procurement-api';
 import { grnApi, type GRN } from '@/lib/grn-api';
 import { useProject } from '@/contexts/ProjectContext';
-import { 
-  Loader2, 
-  Package, 
-  FileCheck, 
-  Receipt, 
-  Plus, 
-  Eye, 
-  CheckCircle, 
-  AlertCircle,
+import {
+  Loader2,
+  Package,
+  FileCheck,
+  Receipt,
+  Plus,
+  CheckCircle,
   ShoppingCart,
   Clock,
   DollarSign,
@@ -41,11 +39,14 @@ import { format } from 'date-fns';
 import { useCurrency } from '@/contexts/CurrencyContext';
 
 export function Procurement() {
-  const { formatAmount } = useCurrency();
+  // Procurement amounts are always in Rwandan francs (the agreed workflow), whatever the display setting
+  const { formatAmount: formatIn } = useCurrency();
+  const formatAmount = (amount: number) => formatIn(amount, 'RWF');
   const { currentProject } = useProject();
 
   const [activeTab, setActiveTab] = useState('overview');
   const [preSelectMaterialRequest, setPreSelectMaterialRequest] = useState<string>('');
+  // The receiving note (delivery) form
   const [grnModalOpen, setGrnModalOpen] = useState(false);
   const [selectedGrn, setSelectedGrn] = useState<GRN | null>(null);
   const [grnDetailsModalOpen, setGrnDetailsModalOpen] = useState(false);
@@ -59,18 +60,18 @@ export function Procurement() {
         procurementApi.getPurchaseOrders(pId),
         grnApi.getGRNs(pId)
       ]);
-      
+
       const [materialRequestsResult, purchaseOrdersResult, grnsResult] = results;
-      
+
       return {
-        materialRequests: materialRequestsResult.status === 'fulfilled' 
-          ? materialRequestsResult.value?.data?.docs || [] 
+        materialRequests: materialRequestsResult.status === 'fulfilled'
+          ? materialRequestsResult.value?.data?.docs || []
           : [],
-        purchaseOrders: purchaseOrdersResult.status === 'fulfilled' 
-          ? purchaseOrdersResult.value?.data?.docs || [] 
+        purchaseOrders: purchaseOrdersResult.status === 'fulfilled'
+          ? purchaseOrdersResult.value?.data?.docs || []
           : [],
-        grns: grnsResult.status === 'fulfilled' 
-          ? grnsResult.value?.data || [] 
+        grns: grnsResult.status === 'fulfilled'
+          ? grnsResult.value?.data || []
           : []
       };
     },
@@ -97,7 +98,8 @@ export function Procurement() {
       'received': { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200', dot: 'bg-purple-500' },
       'completed': { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', dot: 'bg-green-500' },
     };
-    return configs[status] || configs['pending'];
+    // Request statuses are capitalised ("Pending"); purchase order statuses are lower case
+    return configs[String(status || 'pending').toLowerCase()] || configs['pending'];
   };
 
   const getPriorityConfig = (priority: string) => {
@@ -120,10 +122,10 @@ export function Procurement() {
   };
 
   // Calculate stats
-  const pendingRequests = materialRequests.filter(req => req.status === 'pending').length;
+  const pendingRequests = materialRequests.filter(req => (req.status || 'Pending') === 'Pending').length;
   const highPriorityRequests = materialRequests.filter(req => req.priorityLevel === PriorityLevel.HIGH).length;
   const totalPOValue = purchaseOrders.reduce((sum, po) => sum + po.totalCost, 0);
-  const expenseRecordedPOs = purchaseOrders.filter(po => po.expenseRecorded).length;
+  const approvedPOs = purchaseOrders.filter(po => po.status === 'Approved').length;
 
   if (!currentProject) {
     return (
@@ -191,7 +193,7 @@ export function Procurement() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-gray-100">
           {[
             { label: 'Material Requests', value: materialRequests.length, subtext: `${pendingRequests} pending`, icon: ClipboardList },
-            { label: 'Purchase Orders', value: purchaseOrders.length, subtext: `${expenseRecordedPOs} recorded`, icon: FileCheck },
+            { label: 'Purchase Orders', value: purchaseOrders.length, subtext: `${approvedPOs} approved · ${purchaseOrders.length - approvedPOs} draft`, icon: FileCheck },
             { label: 'High Priority', value: highPriorityRequests, subtext: 'Need attention', icon: AlertTriangle },
             { label: 'Total PO Value', value: formatAmount(totalPOValue), subtext: 'All orders', icon: DollarSign },
           ].map((stat) => (
@@ -261,7 +263,7 @@ export function Procurement() {
               </TabsTrigger>
             </Can>
             <TabsTrigger
-              value="grn"
+              value="deliveries"
               className={cn(
                 "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
                 "data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm",
@@ -269,7 +271,7 @@ export function Procurement() {
               )}
             >
               <Truck className="h-4 w-4" />
-              GRN
+              Deliveries
               {grns.length > 0 && (
                 <Badge variant="secondary" className="ml-1 bg-gray-200">{grns.length}</Badge>
               )}
@@ -288,7 +290,7 @@ export function Procurement() {
             {/* Quick Actions */}
             <div className="grid gap-4 md:grid-cols-3">
               <Can permission={Permissions.CREATE_MATERIAL_REQUEST}>
-                <Card 
+                <Card
                   className="border-gray-200 hover:border-gray-300 transition-colors cursor-pointer group"
                   onClick={() => setActiveTab('material-requests')}
                 >
@@ -308,7 +310,7 @@ export function Procurement() {
               </Can>
 
               <Can permission={Permissions.CREATE_PURCHASE_ORDER}>
-                <Card 
+                <Card
                   className="border-gray-200 hover:border-gray-300 transition-colors cursor-pointer group"
                   onClick={() => setActiveTab('purchase-orders')}
                 >
@@ -327,9 +329,12 @@ export function Procurement() {
                 </Card>
               </Can>
 
-              <Card 
+              <Card
                 className="border-gray-200 hover:border-gray-300 transition-colors cursor-pointer group"
-                onClick={() => setGrnModalOpen(true)}
+                onClick={() => {
+                  setActiveTab('deliveries');
+                  setGrnModalOpen(true);
+                }}
               >
                 <CardContent className="p-5">
                   <div className="flex items-center gap-4">
@@ -337,8 +342,8 @@ export function Procurement() {
                       <Truck className="h-6 w-6 text-green-600" />
                     </div>
                     <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">Record GRN</h3>
-                      <p className="text-sm text-gray-500">Log goods received</p>
+                      <h3 className="font-semibold text-gray-900">Record delivery</h3>
+                      <p className="text-sm text-gray-500">Receive and inspect goods on site</p>
                     </div>
                     <ArrowRight className="h-5 w-5 text-gray-400 group-hover:text-green-600 group-hover:translate-x-1 transition-all" />
                   </div>
@@ -358,8 +363,8 @@ export function Procurement() {
                       </div>
                       <CardTitle className="text-base">Recent Material Requests</CardTitle>
                     </div>
-                    <Button 
-                      variant="ghost" 
+                    <Button
+                      variant="ghost"
                       size="sm"
                       onClick={() => setActiveTab('material-requests')}
                     >
@@ -381,7 +386,7 @@ export function Procurement() {
                       materialRequests.slice(0, 4).map((request, index) => {
                         const statusConfig = getStatusConfig(request.status);
                         const priorityConfig = getPriorityConfig(request.priorityLevel);
-                        
+
                         return (
                           <motion.div
                             key={request._id}
@@ -405,8 +410,8 @@ export function Procurement() {
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              <Badge 
-                                variant="outline" 
+                              <Badge
+                                variant="outline"
                                 className={cn("text-xs", statusConfig.bg, statusConfig.text, statusConfig.border)}
                               >
                                 <div className={cn("w-1.5 h-1.5 rounded-full mr-1", statusConfig.dot)} />
@@ -431,8 +436,8 @@ export function Procurement() {
                       </div>
                       <CardTitle className="text-base">Recent Purchase Orders</CardTitle>
                     </div>
-                    <Button 
-                      variant="ghost" 
+                    <Button
+                      variant="ghost"
                       size="sm"
                       onClick={() => setActiveTab('purchase-orders')}
                     >
@@ -471,15 +476,15 @@ export function Procurement() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
-                            {order.expenseRecorded ? (
+                            {order.status === 'Approved' ? (
                               <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
                                 <CheckCircle className="h-3 w-3 mr-1" />
-                                Recorded
+                                Approved
                               </Badge>
                             ) : (
-                              <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-xs">
+                              <Badge className="bg-red-50 text-red-600 border-red-200 text-xs font-bold uppercase tracking-wider">
                                 <Clock className="h-3 w-3 mr-1" />
-                                Pending
+                                Draft
                               </Badge>
                             )}
                           </div>
@@ -504,10 +509,10 @@ export function Procurement() {
                       <p className="text-sm text-gray-500">{grns.length} total GRNs</p>
                     </div>
                   </div>
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     size="sm"
-                    onClick={() => setActiveTab('grn')}
+                    onClick={() => setActiveTab('deliveries')}
                   >
                     View All
                     <ArrowRight className="h-4 w-4 ml-1" />
@@ -521,17 +526,23 @@ export function Procurement() {
                       <Truck className="h-6 w-6 text-gray-400" />
                     </div>
                     <p className="text-gray-500 mb-4">No goods received notes yet</p>
-                    <Button onClick={() => setGrnModalOpen(true)} className="bg-gray-900 hover:bg-gray-800">
+                    <Button
+                      onClick={() => {
+                        setActiveTab('deliveries');
+                        setGrnModalOpen(true);
+                      }}
+                      className="bg-gray-900 hover:bg-gray-800"
+                    >
                       <Plus className="h-4 w-4 mr-2" />
-                      Create First GRN
+                      Record delivery
                     </Button>
                   </div>
                 ) : (
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {grns.slice(0, 6).map((grn, index) => {
                       const po = purchaseOrders.find(p => p._id === grn.purchaseOrderId);
-                      const totalReceived = grn.items?.reduce((sum, item) => sum + (item.receivedQuantity || 0), 0) || 0;
-                      
+                      const totalReceived = grn.items?.reduce((sum, item) => sum + (item.acceptedQuantity ?? item.receivedQuantity ?? 0), 0) || 0;
+
                       return (
                         <motion.div
                           key={grn._id}
@@ -550,8 +561,8 @@ export function Procurement() {
                             </div>
                             <Badge className={cn(
                               "text-xs",
-                              grn.status === GRNStatus.COMPLETE 
-                                ? "bg-green-100 text-green-700" 
+                              grn.status === GRNStatus.COMPLETE
+                                ? "bg-green-100 text-green-700"
                                 : "bg-amber-100 text-amber-700"
                             )}>
                               {grn.status}
@@ -610,7 +621,8 @@ export function Procurement() {
               <PurchaseOrderForm
                 projectId={currentProject._id}
                 purchaseOrders={purchaseOrders}
-                materialRequests={materialRequests}
+                // A purchase order can only be raised from an approved request
+                materialRequests={materialRequests.filter((r) => r.status === 'Approved' && (r.requestType || 'Material') === 'Material')}
                 onSuccess={loadProcurementData}
                 preSelectMaterialRequest={preSelectMaterialRequest}
               />
@@ -618,134 +630,20 @@ export function Procurement() {
           </TabsContent>
         </Can>
 
-        {/* GRN Tab */}
-        <TabsContent value="grn" className="mt-0">
-          <motion.div
-            key="grn-content"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">Goods Received Notes</h2>
-                <p className="text-gray-500 text-sm">
-                  Track and manage received materials from purchase orders
-                </p>
-              </div>
-              <Button 
-                onClick={() => setGrnModalOpen(true)}
-                className="bg-gray-900 hover:bg-gray-800"
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Create GRN
-              </Button>
-            </div>
-
-            {grns.length === 0 ? (
-              <Card className="border-gray-200">
-                <CardContent className="flex flex-col items-center justify-center py-16">
-                  <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
-                    <Truck className="h-8 w-8 text-gray-400" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No GRNs yet</h3>
-                  <p className="text-gray-500 text-center max-w-sm mb-6">
-                    Create a Goods Received Note when materials from a purchase order are delivered.
-                  </p>
-                  <Button 
-                    onClick={() => setGrnModalOpen(true)}
-                    className="bg-gray-900 hover:bg-gray-800"
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Create First GRN
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {grns.map((grn, index) => {
-                  const po = purchaseOrders.find(p => p._id === grn.purchaseOrderId);
-                  const totalReceived = grn.items?.reduce((sum, item) => sum + (item.receivedQuantity || 0), 0) || 0;
-                  
-                  return (
-                    <motion.div
-                      key={grn._id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.03 }}
-                    >
-                      <Card 
-                        className="border-gray-200 hover:border-gray-300 transition-colors cursor-pointer group"
-                        onClick={() => handleViewGrnDetails(grn)}
-                      >
-                        <CardHeader className="pb-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
-                                <Receipt className="h-5 w-5 text-green-600" />
-                              </div>
-                              <div>
-                                <h4 className="font-semibold text-gray-900">GRN #{grn.grnNumber}</h4>
-                                <p className="text-sm text-gray-500">
-                                  {format(new Date(grn.receivedDate), 'MMM d, yyyy')}
-                                </p>
-                              </div>
-                            </div>
-                            <Badge className={cn(
-                              "text-xs",
-                              grn.status === GRNStatus.COMPLETE 
-                                ? "bg-green-100 text-green-700" 
-                                : "bg-amber-100 text-amber-700"
-                            )}>
-                              {grn.status === GRNStatus.COMPLETE ? (
-                                <CheckCircle className="h-3 w-3 mr-1" />
-                              ) : (
-                                <AlertCircle className="h-3 w-3 mr-1" />
-                              )}
-                              {grn.status}
-                            </Badge>
-                          </div>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-2">
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-500">Purchase Order:</span>
-                              <span className="font-medium text-gray-900">{po?.poNumber || 'N/A'}</span>
-                            </div>
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-500">Items Received:</span>
-                              <span className="font-medium text-gray-900">{grn.items?.length || 0}</span>
-                            </div>
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-500">Total Quantity:</span>
-                              <span className="font-medium text-green-600">{totalReceived} units</span>
-                            </div>
-                          </div>
-
-                          <div className="mt-4 pt-3 border-t border-gray-100 flex justify-end">
-                            <Button variant="ghost" size="sm" className="h-8 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Eye className="h-4 w-4 mr-1" />
-                              View Details
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            )}
-          </motion.div>
+        {/* Deliveries: receiving notes, inspection, review; GRNs come from accepted deliveries */}
+        <TabsContent value="deliveries" className="mt-0">
+          <DeliveriesPanel
+            projectId={currentProject._id}
+            purchaseOrders={purchaseOrders}
+            grns={grns}
+            formOpen={grnModalOpen}
+            onFormOpenChange={setGrnModalOpen}
+            onChanged={loadProcurementData}
+          />
         </TabsContent>
       </Tabs>
 
       {/* Modals */}
-      <GRNModal
-        open={grnModalOpen}
-        onOpenChange={setGrnModalOpen}
-        onSuccess={loadProcurementData}
-      />
-
       <GRNDetailsModal
         open={grnDetailsModalOpen}
         onOpenChange={setGrnDetailsModalOpen}

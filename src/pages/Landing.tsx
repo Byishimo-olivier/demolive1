@@ -3,6 +3,7 @@ import { ArrowRight, Building2, BarChart3, FileText, Users, ChevronRight } from 
 import { Button } from '@/components/ui/button';
 import { LandingNav } from '@/components/LandingNav';
 import { motion } from 'motion/react';
+import { BrandLogo } from '@/components/BrandLogo';
 
 const stats = [
   { value: '100%', label: 'Cloud-Native Platform' },
@@ -292,10 +293,7 @@ export function Landing() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
             <div className="col-span-2 md:col-span-1">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-gray-900 flex items-center justify-center">
-                  <Building2 className="h-4 w-4 text-white" />
-                </div>
-                <span className="text-lg font-bold text-gray-900 font-heading">InfraSoko</span>
+                <BrandLogo />
               </div>
               <p className="mt-4 text-sm text-gray-600">
                 Modern infrastructure project management for teams that build.

@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { FileText } from 'lucide-react';
+import { getFileUrl } from '@/lib/utils';
+import { expenseSourceLabel } from './expense-source';
 
 interface ExpenseDetailsModalProps {
   expense: Expense | null;
@@ -24,16 +26,17 @@ export function ExpenseDetailsModal({
   const { formatAmount } = useCurrency();
 
   if (!expense) return null;
+  const approval = expense.approval;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle className="text-xl font-semibold flex items-center justify-between">
+          <DialogTitle className="text-xl font-semibold flex items-center justify-between gap-3 pr-6">
             <span>Expense Details</span>
             <Badge variant={
-                expense.approvalStatus === 'approved' ? 'default' : 
-                expense.approvalStatus === 'rejected' ? 'destructive' : 
+                expense.approvalStatus === 'approved' ? 'default' :
+                expense.approvalStatus === 'rejected' ? 'destructive' :
                 'secondary'
               } className="capitalize">
               {expense.approvalStatus}
@@ -55,12 +58,32 @@ export function ExpenseDetailsModal({
               <p className="text-sm font-medium text-gray-500">Category</p>
               <p className="font-medium text-gray-900 capitalize">{expense.category}</p>
             </div>
+            <div>
+              <p className="text-sm font-medium text-gray-500">Source</p>
+              <p className="font-medium text-gray-900">{expenseSourceLabel(expense)}</p>
+            </div>
           </div>
 
           <div className="pt-4 border-t border-gray-100">
             <p className="text-sm font-medium text-gray-500 mb-2">Description</p>
             <p className="text-gray-900 whitespace-pre-wrap">{expense.description}</p>
           </div>
+
+          {(approval?.reviewedAt || expense.authorizedUnder) && (
+            <div className="pt-4 border-t border-gray-100 space-y-2 text-sm">
+              {approval?.reviewedAt && (
+                <p className="text-gray-700">
+                  <span className="capitalize">{expense.approvalStatus}</span>
+                  {approval.reviewedByName ? ` by ${approval.reviewedByName}` : ''} on{' '}
+                  {format(new Date(approval.reviewedAt), 'MMM d, yyyy · HH:mm')}
+                </p>
+              )}
+              {approval?.comment && <p className="text-gray-600">“{approval.comment}”</p>}
+              {expense.authorizedUnder && (
+                <p className="text-gray-500">Recorded under authorization: {expense.authorizedUnder}</p>
+              )}
+            </div>
+          )}
 
           {expense.documents && expense.documents.length > 0 && (
             <div className="pt-4 border-t border-gray-100">
@@ -69,7 +92,7 @@ export function ExpenseDetailsModal({
                 {expense.documents.map((doc, idx) => (
                   <a
                     key={idx}
-                    href={doc.filePath}
+                    href={getFileUrl(doc.filePath)}
                     target="_blank"
                     rel="noreferrer"
                     className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"

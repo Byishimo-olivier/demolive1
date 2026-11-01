@@ -3,8 +3,31 @@
  * Sensitive errors (auth, permissions, subscription) get generic messages.
  * All other errors show the actual server message.
  */
+// Backend error code for accounts whose email address is not verified yet
+export const EMAIL_NOT_VERIFIED_CODE = 'EMAIL_NOT_VERIFIED';
+
+// 403 codes whose server message tells the user what to do (safe to show)
+const EXPLAINED_403_CODES = new Set(['TIMELINE_LOCKED', 'MD_APPROVAL_REQUIRED']);
+
+const errorCode = (error: unknown): string =>
+  (error as { response?: { data?: { error?: { details?: { code?: string } } } } })?.response?.data?.error?.details
+    ?.code || '';
+
+export function isEmailNotVerifiedError(error: unknown): boolean {
+  const data = (error as { response?: { data?: { error?: { details?: { code?: string } } } } })?.response?.data;
+  return data?.error?.details?.code === EMAIL_NOT_VERIFIED_CODE;
+}
+
 export function getErrorMessage(error: unknown, fallback: string = 'An unexpected error occurred'): string {
   if (!error) return fallback;
+
+  // Not a permissions problem: tell the user to verify their email
+  if (isEmailNotVerifiedError(error)) {
+    return (
+      (error as { response?: { data?: { message?: string } } }).response?.data?.message ||
+      'Please verify your email address to continue.'
+    );
+  }
 
   // Handle Axios-style errors with response data
   const axiosError = error as {
@@ -32,6 +55,10 @@ export function getErrorMessage(error: unknown, fallback: string = 'An unexpecte
   }
 
   if (status === 403) {
+    // Business-rule refusals (locked timeline, MD-only approval…) explain themselves
+    if (EXPLAINED_403_CODES.has(errorCode(error)) && serverMessage) {
+      return serverMessage;
+    }
     return "You don't have permission to perform this action.";
   }
 

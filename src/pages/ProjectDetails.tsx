@@ -42,7 +42,11 @@ import {
 import { projectApi } from '../lib/project-api';
 import { procurementApi } from '../lib/procurement-api';
 import { financeApi } from '../lib/finance-api';
-import { timelineApi } from '../lib/timeline-api';
+import { timelineApi, type ProjectStage } from '../lib/timeline-api';
+import { overallTimelineProgress, plannedDurationDays, stageProgress } from '../components/timeline/timeline-utils';
+import { ApprovalBadge } from '../components/timeline/TimelineApproval';
+import { MdApprovalsButton } from '../components/approvals/MdApprovals';
+import { ProjectSummaryPanel } from '../components/projects/ProjectSummaryPanel';
 import { inventoryApi } from '../lib/inventory-api';
 import type { Project, ProjectInvite } from '../types';
 import { humanizeLabel, cn } from '@/lib/utils';
@@ -90,6 +94,10 @@ interface ProjectOverview {
     completedStages: number;
     currentStage: string;
     overallProgress: number;
+    startDate: string | null;
+    endDate: string | null;
+    pendingApprovals: number;
+    stages: ProjectStage[];
   };
   inventory: {
     totalItems: number;
@@ -223,15 +231,27 @@ export function ProjectDetails() {
       const inventory = safeExtract(inventoryRes, { data: [] });
       const documents = safeExtract(documentsRes, { data: { data: [] } });
 
-      const completedStages = stages.data?.filter((s: { status: string }) => s.status === 'Completed') || [];
-      const overallProgress = stages.data?.length > 0 ? (completedStages.length / stages.data.length) * 100 : 0;
+      const stageList: ProjectStage[] = Array.isArray(stages.data) ? stages.data : [];
+      const completedStages = stageList.filter((s) => s.status === 'Completed');
+      const overallProgress = overallTimelineProgress(stageList);
+      const stageTimes = (field: 'startDate' | 'endDate') =>
+        stageList.map((s) => new Date(s[field]).getTime()).filter((t) => !isNaN(t));
+      const startTimes = stageTimes('startDate');
+      const endTimes = stageTimes('endDate');
+      const pendingApprovals = stageList.reduce(
+        (count, s) =>
+          count +
+          (s.approval?.status !== 'Approved' ? 1 : 0) +
+          (s.subStages || []).filter((sub) => sub.approval?.status !== 'Approved').length,
+        0
+      );
 
       setOverview({
         project: project!,
         procurement: {
           materialRequests: materialRequests.data?.docs?.length || 0,
           purchaseOrders: purchaseOrders.data?.docs?.length || 0,
-          pendingRequests: materialRequests.data?.docs?.filter((req: { status: string }) => req.status === 'pending').length || 0,
+          pendingRequests: materialRequests.data?.docs?.filter((req: { status?: string }) => (req.status || 'Pending') === 'Pending').length || 0,
           totalValue: purchaseOrders.data?.docs?.reduce((sum: number, po: { totalCost: number }) => sum + po.totalCost, 0) || 0
         },
         finance: {
@@ -242,10 +262,14 @@ export function ProjectDetails() {
           invoices: invoices.data?.length || 0
         },
         timeline: {
-          totalStages: stages.data?.length || 0,
+          totalStages: stageList.length,
           completedStages: completedStages.length,
-          currentStage: stages.data?.find((s: { status: string }) => s.status === 'In Progress')?.stage || 'Not Started',
-          overallProgress
+          currentStage: stageList.find((s) => s.status === 'In Progress')?.stage || 'Not Started',
+          overallProgress,
+          startDate: startTimes.length ? new Date(Math.min(...startTimes)).toISOString() : null,
+          endDate: endTimes.length ? new Date(Math.max(...endTimes)).toISOString() : null,
+          pendingApprovals,
+          stages: stageList
         },
         inventory: {
           totalItems: inventory.data?.length || 0,
@@ -386,6 +410,18 @@ export function ProjectDetails() {
                     <Users className="h-4 w-4" />
                     {project.team?.length || 0} members
                   </span>
+                  {project.clientName && (
+                    <span className="flex items-center gap-1.5">
+                      <Building2 className="h-4 w-4" />
+                      Client: {project.clientName}
+                    </span>
+                  )}
+                  {!!project.contractAmount && (
+                    <span className="flex items-center gap-1.5">
+                      <DollarSign className="h-4 w-4" />
+                      Contract {formatAmount(project.contractAmount, 'RWF')}
+                    </span>
+                  )}
                 </div>
 
                 <p className="text-gray-600 max-w-2xl">
@@ -395,7 +431,8 @@ export function ProjectDetails() {
             </div>
 
             {/* Right side - Actions */}
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+              {projectId && <MdApprovalsButton projectId={projectId} />}
               <Can permission={Permissions.UPDATE_PROJECT}>
                 <Button
                   variant="outline"
@@ -437,27 +474,6 @@ export function ProjectDetails() {
             </div>
           </div>
 
-          {/* Quick stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mt-6 pt-6 border-t border-gray-100">
-            {[
-              { label: 'Team', value: project.team?.length || 0, icon: Users },
-              { label: 'Progress', value: `${overview?.timeline.overallProgress?.toFixed(0) || 0}%`, icon: TrendingUp },
-              { label: 'Budget', value: formatAmount(project.budget), icon: DollarSign },
-              { label: 'Stages', value: `${overview?.timeline.completedStages || 0}/${overview?.timeline.totalStages || 0}`, icon: Target },
-              { label: 'Documents', value: overview?.documents.totalDocuments || 0, icon: FileText },
-              { label: 'Inventory', value: overview?.inventory.totalItems || 0, icon: Package },
-            ].map((stat) => (
-              <div key={stat.label} className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center">
-                  <stat.icon className="h-4 w-4 text-gray-600" />
-                </div>
-                <div>
-                  <p className="text-lg font-bold text-gray-900">{stat.value}</p>
-                  <p className="text-xs text-gray-500">{stat.label}</p>
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
       </motion.div>
 
@@ -552,6 +568,13 @@ export function ProjectDetails() {
                     </Card>
                   )}
 
+                  {/* Client, contract, contact, timeline, progress, expenses and profit & loss */}
+                  <ProjectSummaryPanel
+                    project={project}
+                    progress={overview?.timeline.overallProgress || 0}
+                    timeline={{ startDate: overview?.timeline.startDate || null, endDate: overview?.timeline.endDate || null }}
+                  />
+
                   {/* Key Metrics */}
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                     {[
@@ -595,10 +618,10 @@ export function ProjectDetails() {
                     ))}
                   </div>
 
-                  {/* Progress & Activity */}
-                  <div className="grid gap-4 lg:grid-cols-2">
+                  {/* Progress (wide) beside quick actions and recent activity */}
+                  <div className="grid gap-4 lg:grid-cols-3">
                     {/* Project Progress */}
-                    <Card className="border-gray-200">
+                    <Card className="border-gray-200 lg:col-span-2">
                       <CardHeader className="pb-3">
                         <CardTitle className="flex items-center gap-2 text-base">
                           <Activity className="h-4 w-4 text-gray-500" />
@@ -630,101 +653,152 @@ export function ProjectDetails() {
                           </div>
                         </div>
 
+                        {overview?.timeline.startDate && overview.timeline.endDate && (
+                          <div className="flex items-center justify-between text-sm text-gray-600 p-3 bg-gray-50 rounded-lg">
+                            <span className="flex items-center gap-2">
+                              <Calendar className="h-4 w-4 text-gray-500" />
+                              {format(new Date(overview.timeline.startDate), 'MMM d, yyyy')} – {format(new Date(overview.timeline.endDate), 'MMM d, yyyy')}
+                            </span>
+                            <span className="font-medium">
+                              {plannedDurationDays(overview.timeline.startDate, overview.timeline.endDate)} days
+                            </span>
+                          </div>
+                        )}
+
+                        {(overview?.timeline.stages.length || 0) > 0 && (
+                          <div className="space-y-3">
+                            {overview!.timeline.stages.slice(0, 5).map((stage) => {
+                              const progress = stageProgress(stage);
+                              return (
+                                <div key={stage._id}>
+                                  <div className="flex items-center justify-between gap-2 mb-1">
+                                    <span className="text-sm font-medium text-gray-800 truncate">{stage.stage}</span>
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                      <ApprovalBadge approval={stage.approval} />
+                                      <span className="text-xs text-gray-500">
+                                        {format(new Date(stage.startDate), 'MMM d')} – {format(new Date(stage.endDate), 'MMM d, yyyy')}
+                                      </span>
+                                      <span className="text-sm font-semibold text-gray-700 w-10 text-right">{progress}%</span>
+                                    </div>
+                                  </div>
+                                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                    <div className="h-full bg-indigo-600 rounded-full" style={{ width: `${progress}%` }} />
+                                  </div>
+                                  {(stage.subStages?.length || 0) > 0 && (
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      {stage.subStages!.filter((s) => s.status === 'Completed').length} of {stage.subStages!.length} sub-stages completed
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {(overview?.timeline.pendingApprovals || 0) > 0 && (
+                          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                            {overview!.timeline.pendingApprovals} timeline item{overview!.timeline.pendingApprovals === 1 ? '' : 's'} not yet approved
+                          </p>
+                        )}
+
                         <Button 
                           variant="outline" 
                           className="w-full border-gray-200" 
                           onClick={() => handleTabChange('timeline')}
                         >
-                          View Timeline
+                          {(overview?.timeline.stages.length || 0) > 5
+                            ? `View all ${overview!.timeline.stages.length} stages`
+                            : 'View Timeline'}
                           <ChevronRight className="ml-2 h-4 w-4" />
                         </Button>
                       </CardContent>
                     </Card>
 
-                    {/* Recent Activity */}
-                    <Card className="border-gray-200">
-                      <CardHeader className="pb-3">
-                        <CardTitle className="flex items-center gap-2 text-base">
-                          <Clock className="h-4 w-4 text-gray-500" />
-                          Recent Activity
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-3">
-                          <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
-                            <div className="w-2 h-2 bg-green-500 rounded-full mt-1.5 flex-shrink-0" />
-                            <div>
-                              <p className="text-sm font-medium text-gray-900">Project Updated</p>
-                              <p className="text-xs text-gray-500">{format(new Date(project.updatedAt), 'MMM d, yyyy • h:mm a')}</p>
-                            </div>
+                    <div className="space-y-4">
+                      {/* Quick Actions */}
+                      <Card className="border-gray-200">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="flex items-center gap-2 text-base">
+                            <Target className="h-4 w-4 text-gray-500" />
+                            Quick Actions
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                            <Can permission={Permissions.CREATE_MATERIAL_REQUEST}>
+                              <QuickActionButton
+                                icon={Package}
+                                label="Add Material Request"
+                                onClick={() => handleTabChange('procurement')}
+                              />
+                            </Can>
+                            <Can permission={Permissions.CREATE_EXPENSE}>
+                              <QuickActionButton
+                                icon={DollarSign}
+                                label="Record Expense"
+                                onClick={() => handleTabChange('finance')}
+                              />
+                            </Can>
+                            <Can permission={Permissions.UPDATE_PROGRESS_TRACKING}>
+                              <QuickActionButton
+                                icon={Calendar}
+                                label="Update Progress"
+                                onClick={() => handleTabChange('timeline')}
+                              />
+                            </Can>
+                            <Can permission={Permissions.MANAGE_INVENTORY}>
+                              <QuickActionButton
+                                icon={Layers}
+                                label="Manage Inventory"
+                                onClick={() => handleTabChange('inventory')}
+                              />
+                            </Can>
                           </div>
-                          {overview?.procurement.materialRequests > 0 && (
+                        </CardContent>
+                      </Card>
+                      {/* Recent Activity */}
+                      <Card className="border-gray-200">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="flex items-center gap-2 text-base">
+                            <Clock className="h-4 w-4 text-gray-500" />
+                            Recent Activity
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-3">
                             <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
-                              <div className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 flex-shrink-0" />
+                              <div className="w-2 h-2 bg-green-500 rounded-full mt-1.5 flex-shrink-0" />
                               <div>
-                                <p className="text-sm font-medium text-gray-900">Material Requests Active</p>
-                                <p className="text-xs text-gray-500">{overview.procurement.materialRequests} active requests</p>
+                                <p className="text-sm font-medium text-gray-900">Project Updated</p>
+                                <p className="text-xs text-gray-500">{format(new Date(project.updatedAt), 'MMM d, yyyy • h:mm a')}</p>
                               </div>
                             </div>
-                          )}
-                          {overview?.finance.invoices > 0 && (
-                            <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
-                              <div className="w-2 h-2 bg-purple-500 rounded-full mt-1.5 flex-shrink-0" />
-                              <div>
-                                <p className="text-sm font-medium text-gray-900">Invoices Processed</p>
-                                <p className="text-xs text-gray-500">{overview.finance.invoices} invoices in system</p>
+                            {overview?.procurement.materialRequests > 0 && (
+                              <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                                <div className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 flex-shrink-0" />
+                                <div>
+                                  <p className="text-sm font-medium text-gray-900">Material Requests Active</p>
+                                  <p className="text-xs text-gray-500">{overview.procurement.materialRequests} active requests</p>
+                                </div>
                               </div>
-                            </div>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
+                            )}
+                            {overview?.finance.invoices > 0 && (
+                              <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                                <div className="w-2 h-2 bg-purple-500 rounded-full mt-1.5 flex-shrink-0" />
+                                <div>
+                                  <p className="text-sm font-medium text-gray-900">Invoices Processed</p>
+                                  <p className="text-xs text-gray-500">{overview.finance.invoices} invoices in system</p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
                   </div>
 
                   {/* Urgent Deadlines */}
                   <UrgentDeadlines />
-
-                  {/* Quick Actions */}
-                  <Card className="border-gray-200">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="flex items-center gap-2 text-base">
-                        <Target className="h-4 w-4 text-gray-500" />
-                        Quick Actions
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-                        <Can permission={Permissions.CREATE_MATERIAL_REQUEST}>
-                          <QuickActionButton
-                            icon={Package}
-                            label="Add Material Request"
-                            onClick={() => handleTabChange('procurement')}
-                          />
-                        </Can>
-                        <Can permission={Permissions.CREATE_EXPENSE}>
-                          <QuickActionButton
-                            icon={DollarSign}
-                            label="Record Expense"
-                            onClick={() => handleTabChange('finance')}
-                          />
-                        </Can>
-                        <Can permission={Permissions.UPDATE_PROGRESS_TRACKING}>
-                          <QuickActionButton
-                            icon={Calendar}
-                            label="Update Progress"
-                            onClick={() => handleTabChange('timeline')}
-                          />
-                        </Can>
-                        <Can permission={Permissions.MANAGE_INVENTORY}>
-                          <QuickActionButton
-                            icon={Layers}
-                            label="Manage Inventory"
-                            onClick={() => handleTabChange('inventory')}
-                          />
-                        </Can>
-                      </div>
-                    </CardContent>
-                  </Card>
                 </motion.div>
               </TabsContent>
 

@@ -4,11 +4,12 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Spinner } from '../components/Spinner';
-import { Lock, ArrowLeft, ArrowRight, Building2, ShieldCheck, Check, X } from 'lucide-react';
+import { Lock, ArrowLeft, ArrowRight, ShieldCheck, Check, X } from 'lucide-react';
 import { authApi } from '../lib/auth-api';
 import toast from 'react-hot-toast';
 import { motion } from 'motion/react';
 import { cn } from '@/lib/utils';
+import { BrandLogo } from '@/components/BrandLogo';
 
 export function ResetPassword() {
   const [searchParams] = useSearchParams();
@@ -102,10 +103,7 @@ export function ResetPassword() {
             transition={{ delay: 0.1 }}
           >
             <Link to="/" className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center">
-                <Building2 className="h-5 w-5 text-gray-900" />
-              </div>
-              <span className="text-xl font-bold text-white font-heading">InfraSoko</span>
+              <BrandLogo onDark />
             </Link>
           </motion.div>
 
@@ -171,10 +169,7 @@ export function ResetPassword() {
             className="lg:hidden flex items-center justify-center gap-2 mb-12"
           >
             <Link to="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gray-900 flex items-center justify-center">
-                <Building2 className="h-4 w-4 text-white" />
-              </div>
-              <span className="text-lg font-bold text-gray-900 font-heading">InfraSoko</span>
+              <BrandLogo />
             </Link>
           </motion.div>
 

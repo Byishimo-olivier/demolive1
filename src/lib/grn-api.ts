@@ -9,10 +9,18 @@ export interface GRNItem {
     name: string;
     unit: string;
   };
+  // Ordered / received (older GRNs), kept on new ones too
   quantity: number;
   receivedQuantity: number;
   pendingQuantity?: number;
   remarks?: string;
+  // GRNs from accepted deliveries
+  poLineId?: string;
+  materialName?: string;
+  unit?: string;
+  orderedQuantity?: number;
+  acceptedQuantity?: number;
+  unitPrice?: number;
 }
 
 export interface GRN {

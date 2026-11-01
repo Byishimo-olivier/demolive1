@@ -13,22 +13,44 @@ export interface MaterialDetail {
   category: ExpenseCategory;
 }
 
+export type RequestType = 'Material' | 'Other';
+
 export interface MaterialRequest {
   _id: string;
   projectId: string;
+  // Material requests go to a purchase order; other requests become expenses when approved
+  requestType?: RequestType;
   requesterName: string;
   department: Department;
   requestDate: string;
   materialDetails: MaterialDetail[];
   purpose: string;
   priorityLevel: PriorityLevel;
-  status: 'pending' | 'approved' | 'rejected';
+  // Approval workflow: someone requests, the approver (MD) decides
+  status: RequestStatus;
+  requestedBy?: { _id: string; fullName?: string; email?: string } | string | null;
+  approval?: {
+    reviewedBy?: { _id: string; fullName?: string; email?: string } | string | null;
+    reviewedAt?: string;
+    comment?: string;
+  };
+  // Traceable record of decisions
+  history?: { action: string; byName?: string; at: string; comment?: string }[];
   createdAt: string;
   updatedAt: string;
 }
 
+export type RequestStatus = 'Pending' | 'Approved' | 'Rejected';
+
+export interface ReviewMaterialRequest {
+  status: 'Approved' | 'Rejected';
+  // Required when rejecting
+  comment?: string;
+}
+
 export interface CreateMaterialRequestRequest {
   projectId: string;
+  requestType?: RequestType;
   requesterName: string;
   department: Department;
   requestDate?: string;
@@ -60,8 +82,26 @@ export interface PurchaseOrder {
   paymentTerms: PaymentTerms;
   specialInstructions?: string;
   documentFilePath?: string;
+  // Draft until the approver signs it
+  status?: 'Draft' | 'Approved';
+  approval?: {
+    approvedBy?: { _id: string; fullName?: string; email?: string } | string | null;
+    approvedAt?: string;
+    comment?: string;
+    signature?: { signerName: string; signerTitle?: string; image: string };
+  };
+  // Traceable record of decisions
+  history?: { action: string; byName?: string; at: string; comment?: string }[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ApprovePurchaseOrder {
+  signerName: string;
+  signerTitle?: string;
+  // PNG data URL of the signature
+  signatureImage: string;
+  comment?: string;
 }
 
 export interface CreatePurchaseOrderRequest {
@@ -124,6 +164,12 @@ export const procurementApi = {
     return response.data;
   },
 
+  // The approver's decision on a pending request
+  reviewMaterialRequest: async (id: string, data: ReviewMaterialRequest) => {
+    const response = await api.patch(`/procurement/material-requests/${id}/review`, data);
+    return response.data as { success: boolean; message: string; data: MaterialRequest };
+  },
+
   deleteMaterialRequest: async (id: string) => {
     const response = await api.delete(`/procurement/material-requests/${id}`, {
       requiresPermission: Permissions.DELETE_MATERIAL_REQUEST
@@ -151,9 +197,10 @@ export const procurementApi = {
     return response.data;
   },
 
-  getPurchaseOrders: async (projectId: string) => {
+  getPurchaseOrders: async (projectId: string, limit?: number) => {
     const response = await api.get(`/procurement/purchase-orders/project/${projectId}`, {
-      requiresPermission: Permissions.VIEW_PURCHASE_ORDER
+      requiresPermission: Permissions.VIEW_PURCHASE_ORDER,
+      ...(limit ? { params: { limit } } : {}),
     });
     return response.data as PaginatedResponse<PurchaseOrder>;
   },
@@ -182,6 +229,17 @@ export const procurementApi = {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
     return response.data;
+  },
+
+  // Approve a draft purchase order and sign it
+  approvePurchaseOrder: async (id: string, data: ApprovePurchaseOrder) => {
+    const response = await api.patch(`/procurement/purchase-orders/${id}/approve`, data);
+    return response.data as { success: boolean; message: string; data: PurchaseOrder };
+  },
+
+  returnPurchaseOrderToDraft: async (id: string) => {
+    const response = await api.patch(`/procurement/purchase-orders/${id}/return-to-draft`, {});
+    return response.data as { success: boolean; message: string; data: PurchaseOrder };
   },
 
   deletePurchaseOrder: async (id: string) => {

@@ -24,6 +24,17 @@ export interface BoQLineItem {
   rate: number;
   amount?: number; // Calculated by backend
   completedQuantity?: number;
+  // The Excel import this item came from (none = entered by hand)
+  importId?: string;
+}
+
+// One Excel file imported into the BoQ
+export interface BoQImportRecord {
+  _id: string;
+  fileName: string;
+  sheets: string[];
+  importedBy?: { _id: string; fullName?: string; email?: string } | string | null;
+  importedAt: string;
 }
 
 export interface BoQSection {
@@ -38,6 +49,7 @@ export interface BoQ {
   projectId: string;
   sections: BoQSection[];
   grandTotal: number;
+  imports?: BoQImportRecord[];
   createdBy: string;
   updatedBy: string;
   createdAt: string;
@@ -49,11 +61,26 @@ export interface CreateOrUpdateBoQDTO {
   sections: {
     sectionName: BoQCategory;
     items: {
+      // Sent back when editing so items keep their identity, progress and import
+      _id?: string;
       description: string;
       unit: UnitOfMeasurement;
       quantity: number;
       rate: number;
+      completedQuantity?: number;
+      importId?: string;
     }[];
+  }[];
+}
+
+export interface ImportBoQDTO {
+  fileName: string;
+  sheets?: string[];
+  // Add to the current BoQ or replace it
+  mode: 'add' | 'replace';
+  sections: {
+    sectionName: BoQCategory;
+    items: { description: string; unit: UnitOfMeasurement; quantity: number; rate: number }[];
   }[];
 }
 
@@ -101,6 +128,7 @@ export interface Budget {
   equipmentBudget: number;
   fuelBudget: number;
   overheadsBudget: number;
+  subcontractorsBudget?: number;
   totalPlannedBudget: number;
   notes?: string;
   approvalStatus: string;
@@ -118,6 +146,7 @@ export interface CreateBudgetRequest {
   equipmentBudget: number;
   fuelBudget: number;
   overheadsBudget: number;
+  subcontractorsBudget?: number;
   totalPlannedBudget: number;
   notes?: string;
   approvalStatus?: string;
@@ -132,10 +161,26 @@ export interface Expense {
   description: string;
   documents: { filePath: string; description: string }[];
   approvalStatus: string;
+  // Added by hand, or created from a GRN, an approved request, petty cash or a labour pay run
+  source?: { kind: ExpenseSourceKind; refId?: string; reference?: string };
+  // Who approved or rejected it, when, and why
+  approval?: { reviewedBy?: string; reviewedByName?: string; reviewedAt?: string; comment?: string };
+  // Recorded by a role the Client authorized in writing (not the owner)
+  authorizedUnder?: string;
   createdBy: string;
   updatedBy: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type ExpenseSourceKind = 'Manual' | 'GRN' | 'Request' | 'PurchaseOrder' | 'PettyCash' | 'Labour' | 'Subcontractor';
+
+export interface ExpenseFilters {
+  startDate?: string;
+  endDate?: string;
+  category?: string;
+  status?: string;
+  source?: ExpenseSourceKind;
 }
 
 export interface CreateExpenseRequest {
@@ -186,6 +231,10 @@ export interface Invoice {
     approvedAt?: string;
     comments?: string;
   };
+  invoiceDate?: string;
+  paidAt?: string;
+  voidedAt?: string;
+  voidReason?: string;
   createdBy: string;
   updatedBy: string;
   createdAt: string;
@@ -202,6 +251,8 @@ export interface CreateInvoiceRequest {
   invoiceItems: InvoiceItem[];
   paymentTerms: string;
   dueDate: string;
+  // Defaults to today on the server
+  invoiceDate?: string;
   paymentDetails: {
     bankName: string;
     accountNumber: string;
@@ -218,6 +269,7 @@ export interface BudgetSummary {
     equipment: number;
     fuel: number;
     overheads: number;
+    subcontractors?: number;
   };
   expenses: {
     total: number;
@@ -340,7 +392,7 @@ export const financeApi = {
     formData.append('unit', data.unit);
     formData.append('quantity', data.quantity.toString());
     formData.append('rate', data.rate.toString());
-    
+
     if (data.document) {
       formData.append('document', data.document);
     }
@@ -368,6 +420,20 @@ export const financeApi = {
     return response.data;
   },
 
+  importBoQ: async (projectId: string, data: ImportBoQDTO): Promise<{ data: BoQ; message: string }> => {
+    const response = await api.post(`/finance/boq/${projectId}/import`, data, {
+      requiresPermission: Permissions.CREATE_BOQ
+    });
+    return response.data as { data: BoQ; message: string };
+  },
+
+  deleteBoQImport: async (projectId: string, importId: string): Promise<{ data: BoQ; message: string }> => {
+    const response = await api.delete(`/finance/boq/${projectId}/imports/${importId}`, {
+      requiresPermission: Permissions.CREATE_BOQ
+    });
+    return response.data as { data: BoQ; message: string };
+  },
+
   deleteBoQ: async (projectId: string) => {
     const response = await api.delete(`/finance/boq/${projectId}`, {
       requiresPermission: Permissions.CREATE_BOQ
@@ -392,9 +458,9 @@ export const financeApi = {
 
   getBudget: async (projectId: string, fiscalYear?: number) => {
     const params = fiscalYear ? { fiscalYear } : {};
-    const response = await api.get(`/finance/budget/${projectId}`, { 
+    const response = await api.get(`/finance/budget/${projectId}`, {
       requiresPermission: Permissions.VIEW_BUDGET,
-      params 
+      params
     });
     return response.data;
   },
@@ -448,7 +514,7 @@ export const financeApi = {
     });
 
     const response = await api.post('/finance/expense', formData, {
-      requiresPermission: Permissions.CREATE_EXPENSE,
+      // Owner only unless the Client authorized other roles: the server checks
       headers: { 'Content-Type': 'multipart/form-data' }
     });
     return response.data;
@@ -471,14 +537,10 @@ export const financeApi = {
     return response.data;
   },
 
-  getExpenses: async (projectId: string, filters?: {
-      startDate?: string;
-      endDate?: string;
-    category?: string;
-  }) => {
-    const response = await api.get(`/finance/expense/${projectId}`, { 
+  getExpenses: async (projectId: string, filters?: ExpenseFilters) => {
+    const response = await api.get(`/finance/expense/${projectId}`, {
       requiresPermission: Permissions.VIEW_EXPENSE,
-      params: filters 
+      params: filters
     });
     return response.data;
   },
@@ -499,10 +561,9 @@ export const financeApi = {
     return response.data;
   },
 
-  updateExpenseApprovalStatus: async (expenseId: string, status: string) => {
-    const response = await api.patch(`/finance/expense/${expenseId}/approval-status`, { status }, {
-      requiresPermission: Permissions.UPDATE_EXPENSE
-    });
+  // The server checks the approver (owner or MD)
+  updateExpenseApprovalStatus: async (expenseId: string, status: string, comments?: string) => {
+    const response = await api.patch(`/finance/expense/${expenseId}/approval-status`, { status, comments });
     return response.data;
   },
 
@@ -531,16 +592,18 @@ export const financeApi = {
   getInvoices: async (projectId: string, filters?: {
     status?: string;
     type?: string;
+    startDate?: string;
+    endDate?: string;
   }) => {
-    const response = await api.get(`/finance/invoice/${projectId}`, { 
+    const response = await api.get(`/finance/invoice/${projectId}`, {
       requiresPermission: Permissions.VIEW_INVOICE,
-      params: filters 
+      params: filters
     });
     return response.data;
   },
 
-  updateInvoiceStatus: async (invoiceId: string, status: string) => {
-    const response = await api.patch(`/finance/invoice/${invoiceId}/status`, { status }, {
+  updateInvoiceStatus: async (invoiceId: string, status: string, comments?: string) => {
+    const response = await api.patch(`/finance/invoice/${invoiceId}/status`, { status, comments }, {
       requiresPermission: Permissions.UPDATE_INVOICE_STATUS
     });
     return response.data;
@@ -592,9 +655,9 @@ export const financeApi = {
     category?: ExpenseCategory;
     search?: string;
   }) => {
-    const response = await api.get('/finance/inventory', { 
+    const response = await api.get('/finance/inventory', {
       requiresPermission: Permissions.VIEW_INVENTORY,
-      params 
+      params
     });
     return response.data;
   },
@@ -628,9 +691,9 @@ export const financeApi = {
       endDate?: string;
     }
   ) => {
-    const response = await api.get(`/finance/inventory/${id}/transactions`, { 
+    const response = await api.get(`/finance/inventory/${id}/transactions`, {
       requiresPermission: Permissions.VIEW_INVENTORY,
-      params 
+      params
     });
     return response.data;
   },
@@ -641,9 +704,9 @@ export const financeApi = {
       documentType?: 'GRN' | 'ISSUE';
     }
   ) => {
-    const response = await api.get(`/finance/inventory/${id}/documents`, { 
+    const response = await api.get(`/finance/inventory/${id}/documents`, {
       requiresPermission: Permissions.VIEW_INVENTORY,
-      params 
+      params
     });
     return response.data;
   }

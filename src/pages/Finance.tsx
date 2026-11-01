@@ -4,26 +4,34 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { financeApi, type Budget, type Expense, type Invoice, type BoQ, type BudgetSummary } from '../lib/finance-api';
 import { useProject } from '../contexts/ProjectContext';
-import { 
-  Loader2, 
-  DollarSign, 
-  TrendingUp, 
-  TrendingDown, 
-  ClipboardList, 
-  FileText, 
+import {
+  Loader2,
+  DollarSign,
+  TrendingUp,
+  TrendingDown,
+  ClipboardList,
+  FileText,
   PieChart,
   Receipt,
   CreditCard,
   Wallet,
   AlertTriangle,
   CheckCircle2,
-  Clock
+  Clock,
+  Banknote,
+  HardHat,
+  ClipboardCheck,
+  Briefcase
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { BudgetPlanningForm } from '@/components/finance/BudgetPlanningForm';
 import { ExpenseRecordingForm } from '@/components/finance/ExpenseRecordingForm';
 import { InvoiceForm } from '@/components/finance/InvoiceForm';
 import { BOQManagement } from '@/components/finance/BOQManagement';
+import { PettyCashTab } from '@/components/finance/PettyCashTab';
+import { LabourTab } from '@/components/finance/LabourTab';
+import { SubcontractorsTab } from '@/components/finance/SubcontractorsTab';
+import { WorkDoneTab } from '@/components/finance/WorkDoneTab';
 import { Can } from '@/components/PermissionGate';
 import { Permissions } from '@/constants/permissions';
 import { cn } from '@/lib/utils';
@@ -31,21 +39,27 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Badge } from '@/components/ui/badge';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { getErrorMessage } from '@/utils/error-handler';
+import { DateRangeFilter } from '@/components/filters/DateRangeFilter';
+import { describeRange, hasRange, rangeParams, type DateRange } from '@/lib/date-range';
 
 export function Finance() {
   const { formatAmount } = useCurrency();
   const { currentProject } = useProject();
   const [activeTab, setActiveTab] = useState('overview');
+  // Period for expenses, invoices and their totals (budget figures stay project-to-date)
+  const [period, setPeriod] = useState<DateRange>({});
 
-  const { data: financeData, isLoading: loading, refetch: loadFinanceData } = useQuery({
-    queryKey: ['finance', currentProject?._id],
+  const { data: financeData, isLoading: loading, isFetching, refetch: loadFinanceData } = useQuery({
+    queryKey: ['finance', currentProject?._id, period.startDate ?? '', period.endDate ?? ''],
+    placeholderData: (previous) => previous,
     queryFn: async () => {
       const pId = currentProject!._id;
+      const range = rangeParams(period);
       const [budgetRes, summaryRes, expensesRes, invoicesRes, boqRes] = await Promise.allSettled([
         financeApi.getBudget(pId),
         financeApi.getBudgetSummary(pId),
-        financeApi.getExpenses(pId),
-        financeApi.getInvoices(pId),
+        financeApi.getExpenses(pId, range),
+        financeApi.getInvoices(pId, range),
         financeApi.getProjectBoQ(pId).catch(() => ({ data: null }))
       ]);
 
@@ -78,7 +92,7 @@ export function Finance() {
     );
   }
 
-  if (loading) {
+  if (loading && !financeData) {
     return (
       <div className="flex items-center justify-center py-16">
         <motion.div
@@ -97,17 +111,18 @@ export function Finance() {
 
   // Calculate stats
   const totalBudget = budgetSummary?.budget?.totalPlanned || budget?.totalPlannedBudget || 0;
-  
-  // Calculate total expenses only using 'Approved' expenses
-  const approvedExpenses = expenses.filter(e => e.approvalStatus === 'Approved' || e.approvalStatus === 'approved');
-  const totalExpenses = approvedExpenses.length > 0 
-    ? approvedExpenses.reduce((sum, e) => sum + e.amount, 0)
-    : (budgetSummary?.expenses?.total || 0); // Fall back to summary only if no approved expenses found but summary has them
-    
-  const remainingBudget = budgetSummary?.remaining || (totalBudget - totalExpenses);
-  const utilizationPercentage = budgetSummary?.utilizationPercentage || (totalBudget > 0 ? (totalExpenses / totalBudget) * 100 : 0);
+
+  // Approved expenses only: pending and rejected ones are not money spent
+  const approvedExpenses = expenses.filter(e => e.approvalStatus?.toLowerCase() === 'approved');
+  // In the selected period (the expense list is already filtered by it)
+  const periodExpenses = approvedExpenses.reduce((sum, e) => sum + e.amount, 0);
+  // Project to date, for the budget figures
+  const spentToDate = budgetSummary?.expenses?.total ?? periodExpenses;
+  const remainingBudget = budgetSummary?.remaining ?? (totalBudget - spentToDate);
+  const utilizationPercentage = budgetSummary?.utilizationPercentage ?? (totalBudget > 0 ? (spentToDate / totalBudget) * 100 : 0);
   const paidInvoices = invoices.filter(inv => inv.status === 'paid').length;
-  const pendingInvoices = invoices.filter(inv => inv.status === 'pending' || inv.status === 'sent').length;
+  const pendingInvoices = invoices.filter(inv => ['draft', 'submitted', 'pending'].includes(inv.status)).length;
+  const periodLabel = describeRange(period);
 
   const getUtilizationColor = () => {
     if (utilizationPercentage > 90) return 'text-red-600';
@@ -174,7 +189,7 @@ export function Finance() {
             </div>
             <div>
               <p className="text-sm text-gray-500">Budget Utilization</p>
-              <p className="text-lg font-bold text-gray-900">{formatAmount(totalExpenses)}</p>
+              <p className="text-lg font-bold text-gray-900">{formatAmount(spentToDate)}</p>
               <p className="text-xs text-gray-500">of {formatAmount(totalBudget)}</p>
             </div>
           </div>
@@ -183,28 +198,28 @@ export function Finance() {
         {/* Quick Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-gray-100">
           {[
-            { 
-              label: 'Total Budget', 
-              value: formatAmount(totalBudget), 
-              icon: Wallet, 
+            {
+              label: 'Total Budget',
+              value: formatAmount(totalBudget),
+              icon: Wallet,
               subtitle: budget?.approvalStatus ? `Status: ${budget.approvalStatus}` : 'Not set'
             },
-            { 
-              label: 'Total Expenses', 
-              value: formatAmount(totalExpenses), 
-              icon: TrendingDown, 
-              subtitle: `${expenses.length} transactions`
+            {
+              label: hasRange(period) ? 'Expenses in period' : 'Total Expenses',
+              value: formatAmount(periodExpenses),
+              icon: TrendingDown,
+              subtitle: `${approvedExpenses.length} approved · ${periodLabel}`
             },
-            { 
-              label: 'Remaining', 
-              value: formatAmount(remainingBudget), 
-              icon: TrendingUp, 
+            {
+              label: 'Remaining',
+              value: formatAmount(remainingBudget),
+              icon: TrendingUp,
               subtitle: `${(100 - utilizationPercentage).toFixed(1)}% available`
             },
-            { 
-              label: 'Invoices', 
-              value: invoices.length.toString(), 
-              icon: Receipt, 
+            {
+              label: hasRange(period) ? 'Invoices in period' : 'Invoices',
+              value: invoices.length.toString(),
+              icon: Receipt,
               subtitle: `${paidInvoices} paid, ${pendingInvoices} pending`
             },
           ].map((stat) => (
@@ -221,6 +236,15 @@ export function Finance() {
           ))}
         </div>
       </motion.div>
+
+      {/* Period for expenses and invoices */}
+      <div className="flex flex-col gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <DateRangeFilter value={period} onChange={setPeriod} />
+        <span className="flex items-center gap-2 text-xs text-gray-500">
+          {isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Expenses and invoices: {periodLabel}
+        </span>
+      </div>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
@@ -288,6 +312,19 @@ export function Finance() {
             </Can>
             <Can permission={Permissions.VIEW_BOQ}>
               <TabsTrigger
+                value="work"
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                  "data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm",
+                  "data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900"
+                )}
+              >
+                <ClipboardCheck className="h-4 w-4" />
+                Work done
+              </TabsTrigger>
+            </Can>
+            <Can permission={Permissions.VIEW_BOQ}>
+              <TabsTrigger
                 value="boq"
                 className={cn(
                   "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
@@ -297,6 +334,45 @@ export function Finance() {
               >
                 <ClipboardList className="h-4 w-4" />
                 BOQ
+              </TabsTrigger>
+            </Can>
+            <Can permission={Permissions.VIEW_PETTY_CASH}>
+              <TabsTrigger
+                value="petty-cash"
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                  "data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm",
+                  "data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900"
+                )}
+              >
+                <Banknote className="h-4 w-4" />
+                Petty Cash
+              </TabsTrigger>
+            </Can>
+            <Can permission={Permissions.VIEW_LABOUR}>
+              <TabsTrigger
+                value="labour"
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                  "data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm",
+                  "data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900"
+                )}
+              >
+                <HardHat className="h-4 w-4" />
+                Labour
+              </TabsTrigger>
+            </Can>
+            <Can permission={Permissions.VIEW_SUBCONTRACTORS}>
+              <TabsTrigger
+                value="subcontractors"
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                  "data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm",
+                  "data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900"
+                )}
+              >
+                <Briefcase className="h-4 w-4" />
+                Subcontractors
               </TabsTrigger>
             </Can>
           </TabsList>
@@ -338,9 +414,9 @@ export function Finance() {
                         "text-sm",
                         utilizationPercentage > 90 ? "text-red-700" : "text-amber-700"
                       )}>
-                        Budget utilization is at {utilizationPercentage.toFixed(1)}%. 
-                        {utilizationPercentage > 90 
-                          ? ' Consider reviewing expenses immediately.' 
+                        Budget utilization is at {utilizationPercentage.toFixed(1)}%.
+                        {utilizationPercentage > 90
+                          ? ' Consider reviewing expenses immediately.'
                           : ' Monitor spending closely.'}
                       </p>
                     </div>
@@ -351,27 +427,27 @@ export function Finance() {
               {/* Key Metrics */}
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 {[
-                  { 
-                    title: 'Total Budget', 
+                  {
+                    title: 'Total Budget',
                     value: formatAmount(totalBudget),
                     icon: DollarSign,
                     footer: budget?.approvalStatus || 'Not set',
                     footerColor: budget?.approvalStatus === 'approved' ? 'text-green-600' : 'text-amber-600'
                   },
-                  { 
-                    title: 'Total Expenses', 
-                    value: formatAmount(totalExpenses),
+                  {
+                    title: hasRange(period) ? 'Expenses in period' : 'Total Expenses',
+                    value: formatAmount(periodExpenses),
                     icon: TrendingDown,
-                    footer: `${expenses.length} transactions`,
+                    footer: `${approvedExpenses.length} approved · ${periodLabel}`,
                   },
-                  { 
-                    title: 'Remaining Budget', 
+                  {
+                    title: 'Remaining Budget',
                     value: formatAmount(remainingBudget),
                     icon: TrendingUp,
                     footer: `${(100 - utilizationPercentage).toFixed(1)}% remaining`,
                   },
-                  { 
-                    title: 'BOQ Total', 
+                  {
+                    title: 'BOQ Total',
                     value: formatAmount(boq?.grandTotal || 0),
                     icon: ClipboardList,
                     footer: boq ? `${boq.sections.length} sections` : 'No BoQ created'
@@ -511,7 +587,7 @@ export function Finance() {
                       { label: 'Paid', value: paidInvoices, icon: CheckCircle2, color: 'green' },
                       { label: 'Pending', value: pendingInvoices, icon: Clock, color: 'amber' },
                     ].map((stat) => (
-                      <div 
+                      <div
                         key={stat.label}
                         className={cn(
                           "p-4 rounded-xl flex items-center gap-4",
@@ -596,6 +672,19 @@ export function Finance() {
             </TabsContent>
           </Can>
 
+          {/* Work done: daily quantities and the invoices prepared from them */}
+          <Can permission={Permissions.VIEW_BOQ}>
+            <TabsContent value="work">
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+              >
+                <WorkDoneTab projectId={currentProject._id} onInvoicesChanged={loadFinanceData} />
+              </motion.div>
+            </TabsContent>
+          </Can>
+
           {/* BOQ Tab */}
           <Can permission={Permissions.VIEW_BOQ}>
             <TabsContent value="boq">
@@ -608,6 +697,45 @@ export function Finance() {
                   projectId={currentProject._id}
                   onSuccess={loadFinanceData}
                 />
+              </motion.div>
+            </TabsContent>
+          </Can>
+
+          {/* Petty Cash Tab */}
+          <Can permission={Permissions.VIEW_PETTY_CASH}>
+            <TabsContent value="petty-cash">
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+              >
+                <PettyCashTab projectId={currentProject._id} onExpensesChanged={loadFinanceData} />
+              </motion.div>
+            </TabsContent>
+          </Can>
+
+          {/* Labour Tab */}
+          <Can permission={Permissions.VIEW_LABOUR}>
+            <TabsContent value="labour">
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+              >
+                <LabourTab projectId={currentProject._id} onExpensesChanged={loadFinanceData} />
+              </motion.div>
+            </TabsContent>
+          </Can>
+
+          {/* Subcontractors Tab */}
+          <Can permission={Permissions.VIEW_SUBCONTRACTORS}>
+            <TabsContent value="subcontractors">
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+              >
+                <SubcontractorsTab projectId={currentProject._id} onExpensesChanged={loadFinanceData} />
               </motion.div>
             </TabsContent>
           </Can>

@@ -1,18 +1,25 @@
-import { ArrowRight, Lock, Mail, Building2 } from 'lucide-react';
+import { ArrowRight, Lock, Mail, MailWarning } from 'lucide-react';
 import React, { useState } from 'react';
 import toast from 'react-hot-toast';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Spinner } from '../components/Spinner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { useAuth } from '../contexts/AuthContext';
+import { authApi } from '../lib/auth-api';
+import { getErrorMessage, isEmailNotVerifiedError } from '../utils/error-handler';
 import { motion } from 'motion/react';
+import { BrandLogo } from '@/components/BrandLogo';
 
 export function Login() {
+  const [searchParams] = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  // Set when the account exists but its email address hasn't been verified
+  const [needsVerification, setNeedsVerification] = useState(searchParams.get('verify') === 'required');
+  const [isResending, setIsResending] = useState(false);
   const { signIn } = useAuth();
   const navigate = useNavigate();
 
@@ -23,9 +30,30 @@ export function Login() {
       await signIn(email, password);
       toast.success('Successfully logged in!');
     } catch (error) {
-      // Error is handled by axios interceptor
+      if (isEmailNotVerifiedError(error)) {
+        setNeedsVerification(true);
+      } else if ((error as { response?: { status?: number } })?.response?.status !== 401) {
+        // 401 (wrong credentials) is already shown by the axios interceptor
+        toast.error(getErrorMessage(error, 'Failed to sign in'));
+      }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!email) {
+      toast.error('Enter your email address first');
+      return;
+    }
+    setIsResending(true);
+    try {
+      const res = await authApi.resendVerification(email);
+      toast.success(res.message || 'Verification email sent. Check your inbox.');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Could not send the verification email'));
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -49,10 +77,7 @@ export function Login() {
             transition={{ delay: 0.1 }}
           >
             <Link to="/" className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center">
-                <Building2 className="h-5 w-5 text-gray-900" />
-              </div>
-              <span className="text-xl font-bold text-white font-heading">InfraSoko</span>
+              <BrandLogo onDark />
             </Link>
           </motion.div>
 
@@ -124,10 +149,7 @@ export function Login() {
             className="lg:hidden flex items-center justify-center gap-2 mb-12"
           >
             <Link to="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gray-900 flex items-center justify-center">
-                <Building2 className="h-4 w-4 text-white" />
-              </div>
-              <span className="text-lg font-bold text-gray-900 font-heading">InfraSoko</span>
+              <BrandLogo />
             </Link>
           </motion.div>
 
@@ -144,6 +166,34 @@ export function Login() {
                 Enter your credentials to continue
               </p>
             </div>
+
+            {needsVerification && (
+              <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200">
+                <div className="flex items-start gap-3">
+                  <MailWarning className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-sm font-semibold text-amber-900">Verify your email address</p>
+                      <p className="text-sm text-amber-800 mt-1">
+                        Your account's email address isn't verified yet. Open the link we emailed you, or send a
+                        new one{email ? ` to ${email}` : ' (enter your email below first)'}.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleResendVerification}
+                      disabled={isResending}
+                      className="border-amber-300 bg-white hover:bg-amber-100 text-amber-900"
+                    >
+                      {isResending && <Spinner size="small" className="mr-2" />}
+                      Resend verification email
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">

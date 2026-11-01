@@ -1,12 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { 
-  Loader2, 
-  CheckCircle2, 
-  XCircle, 
-  Users, 
-  ArrowRight, 
-  Building2,
+import {
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  Users,
+  ArrowRight,
   FolderKanban,
   Clock
 } from 'lucide-react';
@@ -15,13 +14,18 @@ import { projectApi } from '../lib/project-api';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { motion } from 'motion/react';
+import { getErrorMessage } from '@/utils/error-handler';
+import { BrandLogo } from '@/components/BrandLogo';
 
 export default function AcceptProjectInvite() {
   const { token } = useParams<{ token: string }>();
   const { user, loading: authLoading } = useAuth();
   const [status, setStatus] = useState<'pending' | 'success' | 'error'>('pending');
   const [message, setMessage] = useState<string>('Processing your invitation...');
+  const [projectId, setProjectId] = useState<string | null>(null);
   const navigate = useNavigate();
+  // An invitation can only be accepted once, so never send it twice
+  const attempted = useRef(false);
 
   useEffect(() => {
     const accept = async () => {
@@ -39,16 +43,23 @@ export default function AcceptProjectInvite() {
         setMessage('Invalid invitation link. No token provided.');
         return;
       }
-      
+      if (attempted.current) return;
+      attempted.current = true;
+
       try {
-        await projectApi.acceptInvitation(token);
+        const res = await projectApi.acceptInvitation(token);
+        setProjectId(res?.data?.projectId ?? null);
         setStatus('success');
-        setMessage('You have successfully joined the project!');
+        setMessage(
+          res?.data?.projectName
+            ? `You have joined ${res.data.projectName}.`
+            : 'You have successfully joined the project!'
+        );
         toast.success('Invitation accepted');
       } catch (err: unknown) {
         console.error(err);
         setStatus('error');
-        setMessage('Failed to accept invitation. The link may be expired or invalid.');
+        setMessage(getErrorMessage(err, 'Failed to accept invitation. The link may be expired or invalid.'));
         toast.error('Failed to accept invitation');
       }
     };
@@ -56,14 +67,14 @@ export default function AcceptProjectInvite() {
   }, [token, user, authLoading, navigate]);
 
   const handleNavigateToDashboard = () => navigate('/dashboard');
-  const handleNavigateToProjects = () => navigate('/projects');
+  const handleNavigateToProjects = () => navigate(projectId ? `/projects/${projectId}` : '/projects');
 
   return (
     <div className="min-h-screen flex">
       {/* Left Column - Branding */}
       <div className="hidden lg:flex lg:w-1/2 bg-gray-900 relative overflow-hidden">
         {/* Subtle grid pattern */}
-        <div 
+        <div
           className="absolute inset-0 opacity-[0.03]"
           style={{
             backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
@@ -78,10 +89,7 @@ export default function AcceptProjectInvite() {
             transition={{ delay: 0.1 }}
           >
             <Link to="/" className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center">
-                <Building2 className="h-5 w-5 text-gray-900" />
-              </div>
-              <span className="text-xl font-bold text-white font-heading">InfraSoko</span>
+              <BrandLogo onDark />
             </Link>
           </motion.div>
 
@@ -144,10 +152,7 @@ export default function AcceptProjectInvite() {
           {/* Mobile Logo */}
           <div className="lg:hidden flex items-center justify-center gap-2 mb-12">
             <Link to="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gray-900 flex items-center justify-center">
-                <Building2 className="h-4 w-4 text-white" />
-              </div>
-              <span className="text-lg font-bold text-gray-900 font-heading">InfraSoko</span>
+              <BrandLogo />
             </Link>
           </div>
 
@@ -188,7 +193,7 @@ export default function AcceptProjectInvite() {
                     onClick={handleNavigateToProjects}
                     className="w-full h-11 bg-gray-900 hover:bg-gray-800 text-white rounded-lg font-medium"
                   >
-                    View projects
+                    {projectId ? 'Open project' : 'View projects'}
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                   <Button

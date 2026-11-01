@@ -1,195 +1,121 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useCallback, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { InventoryForm } from '@/components/inventory/InventoryForm';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { MaterialUsageForm } from '@/components/inventory/MaterialUsageForm';
+import { StockTable } from '@/components/inventory/StockTable';
+import { TransfersPanel, type TransferStart } from '@/components/inventory/TransfersPanel';
+import { StockReportPanel } from '@/components/inventory/StockReportPanel';
 import { inventoryApi, type InventoryItem } from '@/lib/inventory-api';
-import { ExpenseCategory } from '@/types';
+import { stockTransferApi } from '@/lib/stock-transfer-api';
 import { useProject } from '@/contexts/ProjectContext';
-import { 
-  Loader2, 
-  Package, 
-  Plus, 
-  Search, 
-  Edit3, 
-  Trash2, 
-  AlertTriangle,
-  TrendingDown,
-  DollarSign,
-  Layers,
-  MoreVertical,
-  RefreshCw,
-  Filter,
-  Box,
-  ClipboardList
-} from 'lucide-react';
-import toast from 'react-hot-toast';
-import { Can } from '@/components/PermissionGate';
+import { useAuth } from '@/contexts/AuthContext';
+import { useCurrency } from '../contexts/CurrencyContext';
 import { Permissions } from '@/constants/permissions';
+import { AlertTriangle, BarChart3, ClipboardList, DollarSign, Package, RefreshCw, Repeat, TrendingDown, Warehouse } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'motion/react';
-import { useCurrency } from '../contexts/CurrencyContext';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+
+const TAB = cn(
+  'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
+  'data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm',
+  'data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900'
+);
 
 export function Inventory() {
   const { formatAmount } = useCurrency();
   const { currentProject } = useProject();
+  const { can } = useAuth();
   const queryClient = useQueryClient();
-  
-  const [searchTerm, setSearchTerm] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<string>('all');
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
-  const [activeTab, setActiveTab] = useState('inventory');
+  const [activeTab, setActiveTab] = useState('project');
+  const [startTransfer, setStartTransfer] = useState<TransferStart | null>(null);
+  const projectId = currentProject?._id;
 
-  const { data: items = [], isLoading: loading } = useQuery({
-    queryKey: ['inventory', currentProject?._id, categoryFilter, searchTerm],
-    queryFn: async () => {
-      const category = categoryFilter !== 'all' ? categoryFilter : undefined;
-      const response = await inventoryApi.getInventoryItems(
-        currentProject!._id,
-        category,
-        searchTerm || undefined
-      );
-      return response.data || response || [];
-    },
-    enabled: !!currentProject?._id,
+  const { data: access } = useQuery({
+    queryKey: ['stock-access', projectId],
+    queryFn: () => inventoryApi.getAccess(projectId!),
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+  // Header figures are for the site stock
+  const { data: siteItems = [] } = useQuery({
+    queryKey: ['inventory', 'Project', projectId, 'all', ''],
+    queryFn: async () => (await inventoryApi.getInventoryItems(projectId!)).data ?? [],
+    enabled: !!projectId,
+  });
+  const { data: pendingTransfers = [] } = useQuery({
+    queryKey: ['stock-transfers', projectId, '', '', 'Pending Approval'],
+    queryFn: () => stockTransferApi.list(projectId!, { status: 'Pending Approval' }),
+    enabled: !!projectId,
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (itemId: string) => inventoryApi.deleteInventoryItem(itemId),
-    onSuccess: () => {
-      toast.success('Item deleted successfully');
-      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+  // Transfer from the place a stock row belongs to: main store -> this site, or this site -> main store
+  const transfer = useCallback(
+    (fromKey: string, item?: InventoryItem) => {
+      setStartTransfer({ fromKey, toKey: fromKey === 'main' ? `project:${projectId}` : 'main', item });
+      setActiveTab('transfers');
     },
-    onError: (error) => {
-      console.error('Error deleting item:', error);
-      toast.error('Failed to delete item');
-    }
-  });
+    [projectId]
+  );
+  const clearStart = useCallback(() => setStartTransfer(null), []);
 
-  const handleDelete = (itemId: string) => {
-    if (!confirm('Are you sure you want to delete this item?')) return;
-    deleteMutation.mutate(itemId);
-  };
-
-  const handleEdit = (item: InventoryItem) => {
-    setEditingItem(item);
-    setIsFormOpen(true);
-  };
-
-  const handleFormClose = () => {
-    setIsFormOpen(false);
-    setEditingItem(null);
-  };
-
-  const handleFormSuccess = () => {
-    handleFormClose();
-    queryClient.invalidateQueries({ queryKey: ['inventory'] });
-  };
-
-  // Calculate stats
-  const totalItems = items.length;
-  const lowStockItems = items.filter(item => item.currentStock <= item.minimumStock).length;
-  const totalValue = items.reduce((sum, item) => sum + (item.currentStock * item.unitPrice), 0);
-  const outOfStockItems = items.filter(item => item.currentStock === 0).length;
-
-  if (!currentProject) {
+  if (!currentProject || !projectId) {
     return (
       <div className="flex flex-col items-center justify-center py-16">
-        <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
+        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-100">
           <Package className="h-8 w-8 text-gray-400" />
         </div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">No project selected</h3>
-        <p className="text-gray-500">Please select a project to view inventory</p>
+        <h3 className="mb-2 text-lg font-semibold text-gray-900">No project selected</h3>
+        <p className="text-gray-500">Select a project to view its stock</p>
       </div>
     );
   }
 
-  if (loading && items.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="flex flex-col items-center gap-4"
-        >
-          <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center">
-            <Loader2 className="h-6 w-6 text-gray-600 animate-spin" />
-          </div>
-          <p className="text-gray-500 font-medium">Loading inventory...</p>
-        </motion.div>
-      </div>
-    );
-  }
+  const canManageSite = can(Permissions.MANAGE_INVENTORY) || !!access?.isOwner;
+  const canRequestTransfer = can(Permissions.CREATE_STOCK_TRANSFER) || !!access?.canManageMainStock;
+  const projectSiteKey = `project:${projectId}`;
+
+  const lowStock = siteItems.filter((i) => i.minimumStock > 0 && i.currentStock > 0 && i.currentStock <= i.minimumStock).length;
+  const outOfStock = siteItems.filter((i) => i.currentStock <= 0).length;
+  const totalValue = siteItems.reduce((sum, i) => sum + i.currentStock * i.unitPrice, 0);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-white border border-gray-200 rounded-2xl p-6"
-      >
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border border-gray-200 bg-white p-6">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-4">
-            <div className="w-14 h-14 rounded-xl bg-amber-600 flex items-center justify-center flex-shrink-0">
+            <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-amber-600">
               <Package className="h-7 w-7 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900 font-heading">
-                Inventory Management
-              </h1>
-              <p className="text-gray-500 mt-1">
-                Manage stock and materials for {currentProject.name}
-              </p>
+              <h1 className="font-heading text-2xl font-bold text-gray-900">Inventory</h1>
+              <p className="mt-1 text-gray-500">Site stock for {currentProject.name}, the main store and transfers</p>
             </div>
           </div>
-
-          <div className="flex gap-3">
-            <Button
-              variant="outline"
-              onClick={() => queryClient.invalidateQueries({ queryKey: ['inventory'] })}
-              className="border-gray-200"
-            >
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Refresh
-            </Button>
-            <Can permission={Permissions.MANAGE_INVENTORY}>
-              <Button
-                onClick={() => setIsFormOpen(true)}
-                className="bg-gray-900 hover:bg-gray-800 text-white"
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Add Item
-              </Button>
-            </Can>
-          </div>
+          <Button
+            variant="outline"
+            onClick={() => {
+              queryClient.invalidateQueries({ queryKey: ['inventory'] });
+              queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
+              queryClient.invalidateQueries({ queryKey: ['stock-report'] });
+            }}
+            className="border-gray-200"
+          >
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Refresh
+          </Button>
         </div>
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-gray-100">
+        <div className="mt-6 grid grid-cols-2 gap-4 border-t border-gray-100 pt-6 md:grid-cols-4">
           {[
-            { label: 'Total Items', value: totalItems, icon: Package },
-            { label: 'Low Stock', value: lowStockItems, icon: AlertTriangle },
-            { label: 'Out of Stock', value: outOfStockItems, icon: TrendingDown },
-            { label: 'Total Value', value: formatAmount(totalValue), icon: DollarSign },
+            { label: 'Site items', value: siteItems.length, icon: Package },
+            { label: 'Low stock', value: lowStock, icon: AlertTriangle },
+            { label: 'Out of stock', value: outOfStock, icon: TrendingDown },
+            { label: 'Site stock value', value: formatAmount(totalValue), icon: DollarSign },
           ].map((stat) => (
             <div key={stat.label} className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
                 <stat.icon className="h-5 w-5 text-gray-600" />
               </div>
               <div>
@@ -201,240 +127,77 @@ export function Inventory() {
         </div>
       </motion.div>
 
-      {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.1 }}
-        >
-          <TabsList className="w-full justify-start bg-gray-100 p-1 rounded-xl gap-1 flex-wrap h-auto">
-            <TabsTrigger
-              value="inventory"
-              className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
-                "data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm",
-                "data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900"
-              )}
-            >
-              <Package className="h-4 w-4" />
-              Inventory Items
-              {totalItems > 0 && (
-                <Badge variant="secondary" className="ml-1 bg-gray-200">{totalItems}</Badge>
-              )}
+        <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-xl bg-gray-100 p-1">
+          <TabsTrigger value="project" className={TAB}>
+            <Package className="h-4 w-4" />
+            Site stock
+          </TabsTrigger>
+          <TabsTrigger value="main" className={TAB}>
+            <Warehouse className="h-4 w-4" />
+            Main store
+          </TabsTrigger>
+          <TabsTrigger value="transfers" className={TAB}>
+            <Repeat className="h-4 w-4" />
+            Transfers
+            {pendingTransfers.length > 0 && (
+              <Badge variant="secondary" className="ml-1 bg-amber-100 text-amber-800">{pendingTransfers.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="usage" className={TAB}>
+            <ClipboardList className="h-4 w-4" />
+            Material usage
+          </TabsTrigger>
+          {access?.canManageMainStock && (
+            <TabsTrigger value="report" className={TAB}>
+              <BarChart3 className="h-4 w-4" />
+              Stock report
             </TabsTrigger>
-            <TabsTrigger
-              value="usage"
-              className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
-                "data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm",
-                "data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900"
-              )}
-            >
-              <ClipboardList className="h-4 w-4" />
-              Material Usage
-            </TabsTrigger>
-          </TabsList>
-        </motion.div>
+          )}
+        </TabsList>
 
-        {/* Inventory Tab */}
-        <TabsContent value="inventory" className="mt-0">
-          <motion.div
-            key="inventory-content"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            {/* Filters */}
-            <Card className="border-gray-200">
-              <CardContent className="p-4">
-                <div className="flex flex-col md:flex-row gap-4">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input
-                      placeholder="Search items..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-10"
-                    />
-                  </div>
-                  <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                    <SelectTrigger className="w-full md:w-48">
-                      <Filter className="h-4 w-4 mr-2" />
-                      <SelectValue placeholder="Category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Categories</SelectItem>
-                      {Object.values(ExpenseCategory).map((category) => (
-                        <SelectItem key={category} value={category}>
-                          {category.charAt(0).toUpperCase() + category.slice(1)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Inventory Table */}
-            <Card className="border-gray-200">
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-3 text-base">
-                  <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-                    <Layers className="h-5 w-5 text-amber-600" />
-                  </div>
-                  Inventory Items
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {items.length === 0 ? (
-                  <div className="text-center py-12">
-                    <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
-                      <Package className="h-8 w-8 text-gray-400" />
-                    </div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-2">No inventory items</h3>
-                    <p className="text-gray-500 mb-4">Start by adding your first inventory item</p>
-                    <Can permission={Permissions.MANAGE_INVENTORY}>
-                      <Button
-                        onClick={() => setIsFormOpen(true)}
-                        className="bg-gray-900 hover:bg-gray-800 text-white"
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add First Item
-                      </Button>
-                    </Can>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Item</TableHead>
-                          <TableHead>Category</TableHead>
-                          <TableHead>Stock</TableHead>
-                          <TableHead>Unit Price</TableHead>
-                          <TableHead>Total Value</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {items.map((item) => {
-                          const isLowStock = item.currentStock <= item.minimumStock;
-                          const isOutOfStock = item.currentStock === 0;
-                          
-                          return (
-                            <TableRow key={item._id} className="hover:bg-gray-50">
-                              <TableCell>
-                                <div className="flex items-center gap-3">
-                                  <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-                                    <Box className="h-5 w-5 text-amber-600" />
-                                  </div>
-                                  <div>
-                                    <p className="font-medium text-gray-900">{item.name}</p>
-                                    <p className="text-sm text-gray-500">{item.materialCode}</p>
-                                  </div>
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <Badge variant="secondary" className="capitalize">
-                                  {item.category}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <span className={cn(
-                                    "font-medium",
-                                    isOutOfStock && "text-red-600",
-                                    isLowStock && !isOutOfStock && "text-amber-600"
-                                  )}>
-                                    {item.currentStock}
-                                  </span>
-                                  <span className="text-gray-500">{item.unit}</span>
-                                </div>
-                              </TableCell>
-                              <TableCell>{formatAmount(item.unitPrice)}</TableCell>
-                              <TableCell>{formatAmount(item.currentStock * item.unitPrice)}</TableCell>
-                              <TableCell>
-                                {isOutOfStock ? (
-                                  <Badge variant="destructive">Out of Stock</Badge>
-                                ) : isLowStock ? (
-                                  <Badge variant="outline" className="border-amber-500 text-amber-600">
-                                    Low Stock
-                                  </Badge>
-                                ) : (
-                                  <Badge variant="outline" className="border-green-500 text-green-600">
-                                    In Stock
-                                  </Badge>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <Can permission={Permissions.MANAGE_INVENTORY}>
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <Button variant="ghost" size="icon">
-                                        <MoreVertical className="h-4 w-4" />
-                                      </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                      <DropdownMenuItem onClick={() => handleEdit(item)}>
-                                        <Edit3 className="h-4 w-4 mr-2" />
-                                        Edit
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem
-                                        onClick={() => handleDelete(item._id)}
-                                        className="text-red-600"
-                                      >
-                                        <Trash2 className="h-4 w-4 mr-2" />
-                                        Delete
-                                      </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                </Can>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
+        <TabsContent value="project" className="mt-0">
+          <StockTable
+            projectId={projectId}
+            location="Project"
+            canManage={canManageSite}
+            canAdjust={!!access?.canAdjustProjectStock}
+            onTransfer={canRequestTransfer ? (item) => transfer(projectSiteKey, item) : undefined}
+          />
         </TabsContent>
 
-        {/* Material Usage Tab */}
+        <TabsContent value="main" className="mt-0 space-y-3">
+          <p className="text-sm text-gray-500">{access?.mainStore.label ?? 'Main store'}</p>
+          <StockTable
+            projectId={projectId}
+            location="Main"
+            canManage={!!access?.canManageMainStock}
+            canAdjust={!!access?.canManageMainStock}
+            onTransfer={canRequestTransfer ? (item) => transfer('main', item) : undefined}
+          />
+        </TabsContent>
+
+        <TabsContent value="transfers" className="mt-0">
+          <TransfersPanel
+            projectId={projectId}
+            projectName={currentProject.name}
+            canRequest={canRequestTransfer}
+            start={startTransfer}
+            onStartHandled={clearStart}
+          />
+        </TabsContent>
+
         <TabsContent value="usage" className="mt-0">
-          <motion.div
-            key="usage-content"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            <MaterialUsageForm
-              projectId={currentProject._id}
-              onSuccess={() => queryClient.invalidateQueries({ queryKey: ['inventory'] })}
-            />
-          </motion.div>
+          <MaterialUsageForm projectId={projectId} onSuccess={() => queryClient.invalidateQueries({ queryKey: ['inventory'] })} />
         </TabsContent>
+
+        {access?.canManageMainStock && (
+          <TabsContent value="report" className="mt-0">
+            <StockReportPanel projectId={projectId} />
+          </TabsContent>
+        )}
       </Tabs>
 
-      {/* Add/Edit Dialog */}
-      <Dialog open={isFormOpen} onOpenChange={handleFormClose}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              {editingItem ? 'Edit Inventory Item' : 'Add Inventory Item'}
-            </DialogTitle>
-          </DialogHeader>
-          <InventoryForm
-            item={editingItem}
-            onSuccess={handleFormSuccess}
-            onCancel={handleFormClose}
-          />
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

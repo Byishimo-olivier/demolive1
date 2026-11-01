@@ -54,6 +54,25 @@ export const Permissions = {
   MANAGE_INVENTORY: 'inventory:manage',
   VIEW_INVENTORY: 'inventory:view',
 
+  // Stock transfers between the main store and project sites
+  CREATE_STOCK_TRANSFER: 'stock-transfer:create',
+  VIEW_STOCK_TRANSFER: 'stock-transfer:view',
+
+  // Site receiving notes (deliveries and inspection)
+  CREATE_RECEIVING_NOTE: 'receiving:create',
+  VIEW_RECEIVING_NOTE: 'receiving:view',
+
+  // Petty cash
+  CREATE_PETTY_CASH: 'petty-cash:create',
+  VIEW_PETTY_CASH: 'petty-cash:view',
+
+  // Labour attendance
+  RECORD_LABOUR: 'labour:record',
+  VIEW_LABOUR: 'labour:view',
+  // Subcontractors and the payments made to them
+  MANAGE_SUBCONTRACTORS: 'subcontractor:manage',
+  VIEW_SUBCONTRACTORS: 'subcontractor:view',
+
   // Timeline permissions
   CREATE_PROJECT_STAGE: 'timeline:create-stage',
   UPDATE_PROGRESS_TRACKING: 'timeline:update-progress',
@@ -61,6 +80,7 @@ export const Permissions = {
   VIEW_TIMELINE: 'timeline:view',
   DELETE_PROJECT_STAGE: 'timeline:delete-stage',
   DELETE_PROGRESS_TRACKING: 'timeline:delete-progress',
+  APPROVE_PROJECT_STAGE: 'timeline:approve-stage',
 
   // Document permissions
   REVIEW_DOCUMENT: 'document:review',
@@ -141,6 +161,7 @@ export const companyPermissions: Record<string, string[]> = {
     Permissions.UPDATE_PROJECT_STAGE,
     Permissions.UPDATE_PROGRESS_TRACKING,
     Permissions.VIEW_TIMELINE,
+    Permissions.APPROVE_PROJECT_STAGE,
     // All finance permissions
     Permissions.VIEW_BUDGET,
     Permissions.CREATE_BUDGET,
@@ -157,6 +178,16 @@ export const companyPermissions: Record<string, string[]> = {
     // All inventory permissions
     Permissions.MANAGE_INVENTORY,
     Permissions.VIEW_INVENTORY,
+    Permissions.CREATE_STOCK_TRANSFER,
+    Permissions.VIEW_STOCK_TRANSFER,
+    Permissions.CREATE_RECEIVING_NOTE,
+    Permissions.VIEW_RECEIVING_NOTE,
+    Permissions.CREATE_PETTY_CASH,
+    Permissions.VIEW_PETTY_CASH,
+    Permissions.RECORD_LABOUR,
+    Permissions.VIEW_LABOUR,
+    Permissions.MANAGE_SUBCONTRACTORS,
+    Permissions.VIEW_SUBCONTRACTORS,
     // All bidding permissions
     Permissions.CREATE_TENDER,
     Permissions.UPDATE_TENDER,
@@ -183,6 +214,8 @@ export const companyPermissions: Record<string, string[]> = {
     Permissions.VIEW_PROJECT_REPORTS,
     Permissions.VIEW_BUDGET,
     Permissions.VIEW_EXPENSE,
+    // The MD can always record expenses by hand
+    Permissions.CREATE_EXPENSE,
     Permissions.VIEW_INVOICE,
     Permissions.VIEW_MATERIAL_REQUEST,
     Permissions.VIEW_PURCHASE_ORDER,
@@ -190,11 +223,23 @@ export const companyPermissions: Record<string, string[]> = {
     Permissions.VIEW_INVENTORY,
     Permissions.VIEW_TIMELINE,
     Permissions.VIEW_DOCUMENT,
+    // The MD acts for the owner on deliveries, transfers, petty cash and labour
+    Permissions.CREATE_STOCK_TRANSFER,
+    Permissions.VIEW_STOCK_TRANSFER,
+    Permissions.CREATE_RECEIVING_NOTE,
+    Permissions.VIEW_RECEIVING_NOTE,
+    Permissions.CREATE_PETTY_CASH,
+    Permissions.VIEW_PETTY_CASH,
+    Permissions.RECORD_LABOUR,
+    Permissions.VIEW_LABOUR,
+    Permissions.MANAGE_SUBCONTRACTORS,
+    Permissions.VIEW_SUBCONTRACTORS,
     // Bidding permissions
     Permissions.VIEW_TENDER,
     Permissions.VIEW_BID,
     Permissions.VIEW_CLARIFICATION,
     // Strategic oversight permissions
+    Permissions.APPROVE_PROJECT_STAGE,
   ],
   
   [CompanyUserRole.MANAGER]: [
@@ -210,6 +255,8 @@ export const companyPermissions: Record<string, string[]> = {
     Permissions.VIEW_BOQ,
     Permissions.CREATE_BOQ,
     Permissions.VIEW_INVENTORY,
+    Permissions.VIEW_STOCK_TRANSFER,
+    Permissions.VIEW_RECEIVING_NOTE,
     Permissions.VIEW_TIMELINE,
     Permissions.VIEW_DOCUMENT,
     // Bidding permissions
@@ -240,6 +287,16 @@ export const companyPermissions: Record<string, string[]> = {
     Permissions.UPDATE_BOQ_PROGRESS,
     Permissions.VIEW_INVENTORY,
     Permissions.MANAGE_INVENTORY,
+    Permissions.CREATE_STOCK_TRANSFER,
+    Permissions.VIEW_STOCK_TRANSFER,
+    Permissions.CREATE_RECEIVING_NOTE,
+    Permissions.VIEW_RECEIVING_NOTE,
+    Permissions.CREATE_PETTY_CASH,
+    Permissions.VIEW_PETTY_CASH,
+    Permissions.RECORD_LABOUR,
+    Permissions.VIEW_LABOUR,
+    Permissions.MANAGE_SUBCONTRACTORS,
+    Permissions.VIEW_SUBCONTRACTORS,
     Permissions.VIEW_TIMELINE,
     Permissions.VIEW_DOCUMENT,
     // Bidding permissions
@@ -263,6 +320,17 @@ export const companyPermissions: Record<string, string[]> = {
     Permissions.VIEW_MATERIAL_REQUEST,
     Permissions.MANAGE_INVENTORY,
     Permissions.VIEW_INVENTORY,
+    // The site manager receives deliveries against purchase orders
+    Permissions.VIEW_PURCHASE_ORDER,
+    Permissions.CREATE_RECEIVING_NOTE,
+    Permissions.VIEW_RECEIVING_NOTE,
+    Permissions.CREATE_STOCK_TRANSFER,
+    Permissions.VIEW_STOCK_TRANSFER,
+    Permissions.CREATE_PETTY_CASH,
+    Permissions.VIEW_PETTY_CASH,
+    Permissions.RECORD_LABOUR,
+    Permissions.VIEW_LABOUR,
+    Permissions.VIEW_SUBCONTRACTORS,
     Permissions.VIEW_BOQ,
     Permissions.UPDATE_BOQ_PROGRESS,
     Permissions.VIEW_TIMELINE,
@@ -282,6 +350,11 @@ export const companyPermissions: Record<string, string[]> = {
     Permissions.VIEW_MATERIAL_REQUEST,
     Permissions.MANAGE_INVENTORY,
     Permissions.VIEW_INVENTORY,
+    Permissions.CREATE_STOCK_TRANSFER,
+    Permissions.VIEW_STOCK_TRANSFER,
+    Permissions.CREATE_RECEIVING_NOTE,
+    Permissions.VIEW_RECEIVING_NOTE,
+    Permissions.VIEW_SUBCONTRACTORS,
     Permissions.VIEW_BOQ,
     Permissions.VIEW_TIMELINE,
     Permissions.VIEW_DOCUMENT,
@@ -303,6 +376,13 @@ export const companyPermissions: Record<string, string[]> = {
     Permissions.VIEW_PURCHASE_ORDER,
     Permissions.VIEW_BOQ,
     Permissions.VIEW_INVENTORY,
+    Permissions.VIEW_STOCK_TRANSFER,
+    Permissions.VIEW_RECEIVING_NOTE,
+    Permissions.CREATE_PETTY_CASH,
+    Permissions.VIEW_PETTY_CASH,
+    Permissions.VIEW_LABOUR,
+    Permissions.MANAGE_SUBCONTRACTORS,
+    Permissions.VIEW_SUBCONTRACTORS,
     Permissions.VIEW_TIMELINE,
     Permissions.VIEW_DOCUMENT,
     // Bidding permissions

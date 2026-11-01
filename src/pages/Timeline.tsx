@@ -1,48 +1,50 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { timelineApi, type ProjectStage, type ProgressTracking } from '../lib/timeline-api';
 import { useProject } from '../contexts/ProjectContext';
 import { 
   Loader2, 
-  Calendar, 
-  Clock, 
-  CheckCircle2, 
+  Calendar,
+  CheckCircle2,
   AlertTriangle, 
   Plus, 
   TrendingUp, 
   FileText, 
   Eye, 
-  Edit3, 
-  MoreVertical, 
-  Download, 
-  Share2, 
   BarChart3, 
   Activity, 
   Play,
-  Pause,
   Milestone,
-  ArrowUpRight,
-  Timer,
-  Layers
+  Layers,
+  ShieldCheck,
+  Wallet
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ProjectStageModal } from '@/components/timeline/ProjectStageModal';
 import { ProgressTrackingModal } from '@/components/timeline/ProgressTrackingModal';
+import { StageCard } from '@/components/timeline/StageCard';
+import { StageDetailsDialog } from '@/components/timeline/StageDetailsDialog';
+import {
+  ProjectBudgetContext,
+  TimelineLockContext,
+  budgetUsage,
+  overallTimelineProgress,
+  scheduleState,
+  useTimelineAccess,
+  type ProjectBudgetInfo,
+} from '@/components/timeline/timeline-utils';
+import { ApproversDialog } from '@/components/timeline/ApproversDialog';
+import { useCurrency } from '@/contexts/CurrencyContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { TimelineLockActions, TimelineLockStatus } from '@/components/timeline/TimelineLockBanner';
 import { Can } from '@/components/PermissionGate';
 import { Permissions } from '@/constants/permissions';
-import { format, differenceInDays, isPast } from 'date-fns';
+import { format } from 'date-fns';
 import { motion } from 'motion/react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 
 export function Timeline() {
   const { currentProject } = useProject();
@@ -54,6 +56,14 @@ export function Timeline() {
   const [selectedStage, setSelectedStage] = useState<ProjectStage | null>(null);
   const [selectedProgress, setSelectedProgress] = useState<ProgressTracking | null>(null);
   const [activeTab, setActiveTab] = useState('stages');
+  // Stage shown in the "More details" view (looked up live so edits show immediately)
+  const [detailsStageId, setDetailsStageId] = useState<string | null>(null);
+  const { formatAmount } = useCurrency();
+  const { access, setAccess } = useTimelineAccess(currentProject?._id);
+  const { can } = useAuth();
+  // Locked timeline: the plan is read-only unless this user decides on it (the MD)
+  const planLocked = access.lock?.status === 'Locked' && !access.lock.canDecide;
+  const [approversOpen, setApproversOpen] = useState(false);
 
   useEffect(() => {
     if (currentProject?._id) {
@@ -61,10 +71,11 @@ export function Timeline() {
     }
   }, [currentProject?._id]);
 
-  const loadTimelineData = async () => {
+  // A silent reload keeps the page (and any open dialogs) on screen while it refreshes
+  const loadTimelineData = async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!currentProject?._id) return;
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const [stagesRes, progressRes] = await Promise.allSettled([
         timelineApi.getProjectStages(currentProject._id),
         timelineApi.getProgressTracking(currentProject._id)
@@ -78,17 +89,6 @@ export function Timeline() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const getStatusConfig = (status: string) => {
-    const configs: Record<string, { bg: string; text: string; border: string; dot: string; icon: any; barColor: string }> = {
-      'Completed': { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', dot: 'bg-green-500', icon: CheckCircle2, barColor: 'bg-green-500' },
-      'In Progress': { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-500', icon: Play, barColor: 'bg-blue-500' },
-      'Not Started': { bg: 'bg-gray-50', text: 'text-gray-700', border: 'border-gray-200', dot: 'bg-gray-400', icon: Clock, barColor: 'bg-gray-400' },
-      'On Hold': { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', dot: 'bg-amber-500', icon: Pause, barColor: 'bg-amber-500' },
-      'Delayed': { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', dot: 'bg-red-500', icon: AlertTriangle, barColor: 'bg-red-500' },
-    };
-    return configs[status] || configs['Not Started'];
   };
 
   const getReportingPeriodColor = (period: string) => {
@@ -106,6 +106,12 @@ export function Timeline() {
     setStageModalOpen(true);
   };
 
+  // Replace one stage in the list with the updated copy returned by the API
+  const handleStageUpdated = (updated: ProjectStage) => {
+    if (!updated?._id) return;
+    setStages((prev) => prev.map((s) => (s._id === updated._id ? updated : s)));
+  };
+
   const handleEditProgress = (progress: ProgressTracking) => {
     setSelectedProgress(progress);
     setProgressModalOpen(true);
@@ -114,11 +120,20 @@ export function Timeline() {
   // Calculate stats
   const completedStages = stages.filter(s => s.status === 'Completed').length;
   const inProgressStages = stages.filter(s => s.status === 'In Progress').length;
-  const overallProgress = stages.length > 0 ? (completedStages / stages.length) * 100 : 0;
-  const delayedStages = stages.filter(s => {
-    const endDate = new Date(s.endDate);
-    return isPast(endDate) && s.status !== 'Completed';
-  }).length;
+  const overallProgress = overallTimelineProgress(stages);
+  // Project budget vs. what the stages plan and have used
+  const budgetInfo: ProjectBudgetInfo = {
+    projectBudget: Number(currentProject?.budget) || 0,
+    allocated: stages.reduce((sum, s) => sum + (s.budget || 0), 0),
+    spent: stages.reduce((sum, s) => sum + (s.actualCost || 0), 0),
+  };
+  const hasProjectBudget = budgetInfo.projectBudget > 0;
+  // Without a project budget there is nothing to be over or under
+  const projectUsage = budgetUsage(budgetInfo.projectBudget, hasProjectBudget ? budgetInfo.spent : 0);
+  const overAllocated = Math.max(0, budgetInfo.allocated - budgetInfo.projectBudget);
+
+  // Same overdue rule as the stage cards
+  const delayedStages = stages.filter((s) => scheduleState(s.endDate, s.status).overdue).length;
 
   if (!currentProject) {
     return (
@@ -150,41 +165,42 @@ export function Timeline() {
   }
 
   return (
+    <ProjectBudgetContext.Provider value={budgetInfo}>
+    <TimelineLockContext.Provider value={{ planLocked }}>
     <div className="space-y-6">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-white border border-gray-200 rounded-2xl p-6"
+        className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"
       >
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-          <div className="flex items-start gap-4">
-            <div className="w-14 h-14 rounded-xl bg-indigo-600 flex items-center justify-center flex-shrink-0">
-              <Calendar className="h-7 w-7 text-white" />
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gray-900 flex items-center justify-center flex-shrink-0">
+              <Calendar className="h-5 w-5 text-orange-500" />
             </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 font-heading">
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold text-gray-900 font-heading">
                 Timeline & Progress
               </h1>
-              <p className="text-gray-500 mt-1">
-                Track project stages, milestones, and progress reports
-              </p>
+              {/* Where the timeline stands with the MD */}
+              {access.lock ? (
+                <TimelineLockStatus lock={access.lock} className="mt-1 max-w-xl" />
+              ) : (
+                <p className="text-sm text-gray-500">{currentProject.name} · stages, milestones and progress reports</p>
+              )}
             </div>
           </div>
 
-          <div className="flex gap-3">
-            <Can permission={Permissions.CREATE_PROJECT_STAGE}>
-              <Button
-                onClick={() => {
-                  setSelectedStage(null);
-                  setStageModalOpen(true);
-                }}
-                className="bg-gray-900 hover:bg-gray-800 text-white"
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Add Stage
+          <div className="flex flex-wrap gap-2">
+            {access.canManageApprovers && (
+              <Button variant="outline" onClick={() => setApproversOpen(true)} className="border-gray-200">
+                <ShieldCheck className="mr-2 h-4 w-4" />
+                Approvers
+                {access.approvers.length > 0 && (
+                  <Badge variant="secondary" className="ml-2 bg-gray-100">{access.approvers.length}</Badge>
+                )}
               </Button>
-            </Can>
+            )}
             <Can permission={Permissions.UPDATE_PROGRESS_TRACKING}>
               <Button
                 variant="outline"
@@ -198,32 +214,167 @@ export function Timeline() {
                 New Report
               </Button>
             </Can>
+            {!planLocked && <Can permission={Permissions.CREATE_PROJECT_STAGE}>
+              <Button
+                onClick={() => {
+                  setSelectedStage(null);
+                  setStageModalOpen(true);
+                }}
+                className="bg-gray-900 hover:bg-gray-800 text-white"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Add Stage
+              </Button>
+            </Can>}
+            {access.lock && (
+              <TimelineLockActions
+                projectId={currentProject._id}
+                lock={access.lock}
+                canEdit={can(Permissions.UPDATE_PROJECT_STAGE)}
+                stageCount={stages.length}
+                onChanged={(lock) => {
+                  setAccess((prev) => ({ ...prev, lock }));
+                  // Approving locks the plan and approves every item: refresh what is shown
+                  loadTimelineData({ silent: true });
+                }}
+              />
+            )}
           </div>
-        </div>
+      </motion.div>
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-gray-100">
-          {[
-            { label: 'Total Stages', value: stages.length, icon: Layers },
-            { label: 'Completed', value: completedStages, icon: CheckCircle2 },
-            { label: 'In Progress', value: inProgressStages, icon: Play },
-            { label: 'Overall Progress', value: `${overallProgress.toFixed(0)}%`, icon: TrendingUp },
-          ].map((stat) => (
-            <div key={stat.label} className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
-                <stat.icon className="h-5 w-5 text-gray-600" />
+      {/* Summary: progress and budget side by side */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+        className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+      >
+        <section className="rounded-2xl border border-gray-200 bg-white p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-50">
+                <Activity className="h-4 w-4 text-orange-600" />
               </div>
               <div>
-                <p className="text-lg font-bold text-gray-900">{stat.value}</p>
-                <p className="text-xs text-gray-500">{stat.label}</p>
+                <h3 className="text-sm font-semibold text-gray-900">Overall progress</h3>
+                <p className="text-xs text-gray-500">
+                  {completedStages} of {stages.length} stage{stages.length === 1 ? '' : 's'} completed
+                </p>
               </div>
             </div>
-          ))}
-        </div>
+            <p className="text-3xl font-bold leading-none text-gray-900">
+              {overallProgress.toFixed(0)}
+              <span className="text-lg font-semibold text-gray-400">%</span>
+            </p>
+          </div>
+
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-100">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${overallProgress}%` }}
+              transition={{ duration: 1, ease: 'easeOut' }}
+              className="h-full rounded-full bg-orange-500"
+            />
+          </div>
+
+          <dl className="mt-5 grid grid-cols-4 divide-x divide-gray-100 border-t border-gray-100 pt-4">
+            {[
+              { label: 'Stages', value: stages.length, icon: Layers, tone: 'text-gray-500' },
+              { label: 'Completed', value: completedStages, icon: CheckCircle2, tone: 'text-emerald-600' },
+              { label: 'In progress', value: inProgressStages, icon: Play, tone: 'text-orange-600' },
+              { label: 'Delayed', value: delayedStages, icon: AlertTriangle, tone: delayedStages > 0 ? 'text-red-600' : 'text-gray-400' },
+            ].map((stat) => (
+              <div key={stat.label} className="px-3 first:pl-0 last:pr-0">
+                <dt className="flex items-center gap-1.5 text-xs text-gray-500">
+                  <stat.icon className={cn('h-3.5 w-3.5', stat.tone)} />
+                  {stat.label}
+                </dt>
+                <dd className={cn('mt-1 text-lg font-semibold', stat.label === 'Delayed' && delayedStages > 0 ? 'text-red-600' : 'text-gray-900')}>
+                  {stat.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        <section className="rounded-2xl border border-gray-200 bg-white p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-100">
+                <Wallet className="h-4 w-4 text-gray-900" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Project budget</h3>
+                <p className="text-xs text-gray-500">{hasProjectBudget ? 'For the whole project' : 'No project budget set'}</p>
+              </div>
+            </div>
+            {hasProjectBudget && (
+              <p className="text-right text-xl font-bold leading-tight text-gray-900 break-words">{formatAmount(budgetInfo.projectBudget)}</p>
+            )}
+          </div>
+
+          {/* Planned in stages (light) with the amount used on top */}
+          <div className="relative mt-4 h-2 overflow-hidden rounded-full bg-gray-100">
+            {hasProjectBudget && (
+              <>
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full bg-gray-300"
+                  style={{ width: `${Math.min(100, (budgetInfo.allocated / budgetInfo.projectBudget) * 100)}%` }}
+                />
+                <div
+                  className={cn(
+                    'absolute inset-y-0 left-0 rounded-full',
+                    projectUsage.isOver ? 'bg-red-500' : projectUsage.percent >= 90 ? 'bg-orange-500' : 'bg-gray-900'
+                  )}
+                  style={{ width: `${Math.min(100, projectUsage.percent)}%` }}
+                />
+              </>
+            )}
+          </div>
+
+          <dl className="mt-5 grid grid-cols-3 divide-x divide-gray-100 border-t border-gray-100 pt-4">
+            <div className="min-w-0 pr-3">
+              <dt className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span className="h-2 w-2 rounded-full bg-gray-300" />
+                Planned in stages
+              </dt>
+              <dd className="mt-1 truncate text-sm font-semibold text-gray-900" title={formatAmount(budgetInfo.allocated)}>
+                {formatAmount(budgetInfo.allocated)}
+              </dd>
+              {hasProjectBudget && (
+                <p className={cn('mt-0.5 truncate text-xs', overAllocated > 0 ? 'font-medium text-red-700' : 'text-gray-500')}>
+                  {overAllocated > 0 ? `${formatAmount(overAllocated)} over budget` : `${formatAmount(budgetInfo.projectBudget - budgetInfo.allocated)} unplanned`}
+                </p>
+              )}
+            </div>
+            <div className="min-w-0 px-3">
+              <dt className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span className={cn('h-2 w-2 rounded-full', projectUsage.isOver ? 'bg-red-500' : 'bg-gray-900')} />
+                Used
+              </dt>
+              <dd
+                className={cn('mt-1 truncate text-sm font-semibold', projectUsage.isOver ? 'text-red-700' : 'text-gray-900')}
+                title={formatAmount(budgetInfo.spent)}
+              >
+                {formatAmount(budgetInfo.spent)}
+              </dd>
+              {hasProjectBudget && <p className="mt-0.5 text-xs text-gray-500">{projectUsage.percent}% of budget</p>}
+            </div>
+            <div className="min-w-0 pl-3">
+              <dt className="text-xs text-gray-500">{projectUsage.isOver ? 'Over budget' : 'Remaining'}</dt>
+              <dd className={cn('mt-1 truncate text-sm font-semibold', projectUsage.isOver ? 'text-red-700' : 'text-gray-900')}>
+                {hasProjectBudget ? formatAmount(projectUsage.isOver ? projectUsage.over : projectUsage.remaining) : '—'}
+              </dd>
+              <p className="mt-0.5 truncate text-xs text-gray-500">
+                {!hasProjectBudget ? 'Set a budget to track' : projectUsage.isOver ? 'Beyond the budget' : 'Left to spend'}
+              </p>
+            </div>
+          </dl>
+        </section>
       </motion.div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -267,48 +418,7 @@ export function Timeline() {
             key="stages-content"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
           >
-            {/* Progress Overview */}
-            <Card className="border-gray-200">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
-                      <Activity className="h-5 w-5 text-gray-600" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-gray-900">Overall Progress</h3>
-                      <p className="text-sm text-gray-500">
-                        {completedStages} of {stages.length} stages completed
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-3xl font-bold text-gray-900">{overallProgress.toFixed(0)}%</p>
-                    <p className="text-sm text-gray-500">Complete</p>
-                  </div>
-                </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${overallProgress}%` }}
-                    transition={{ duration: 1, ease: 'easeOut' }}
-                    className="h-full bg-indigo-600 rounded-full"
-                  />
-                </div>
-
-                {delayedStages > 0 && (
-                  <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
-                    <AlertTriangle className="h-5 w-5 text-red-500" />
-                    <span className="text-sm text-red-700">
-                      <strong>{delayedStages}</strong> stage{delayedStages > 1 ? 's are' : ' is'} past the scheduled end date
-                    </span>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
             {/* Stages List */}
             {stages.length === 0 ? (
               <Card className="border-gray-200">
@@ -320,7 +430,7 @@ export function Timeline() {
                   <p className="text-gray-500 text-center max-w-sm mb-6">
                     Create project stages to track milestones and progress
                   </p>
-                  <Can permission={Permissions.CREATE_PROJECT_STAGE}>
+                  {!planLocked && <Can permission={Permissions.CREATE_PROJECT_STAGE}>
                     <Button
                       onClick={() => {
                         setSelectedStage(null);
@@ -331,154 +441,26 @@ export function Timeline() {
                       <Plus className="mr-2 h-4 w-4" />
                       Create First Stage
                     </Button>
-                  </Can>
+                  </Can>}
                 </CardContent>
               </Card>
             ) : (
-              <div className="space-y-3">
-                {stages.map((stage, index) => {
-                  const statusConfig = getStatusConfig(stage.status);
-                  const StatusIcon = statusConfig.icon;
-                  const startDate = new Date(stage.startDate);
-                  const endDate = new Date(stage.endDate);
-                  const totalDays = differenceInDays(endDate, startDate);
-                  const daysRemaining = differenceInDays(endDate, new Date());
-                  const isOverdue = isPast(endDate) && stage.status !== 'Completed';
-
-                  return (
-                    <motion.div
-                      key={stage._id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.03 }}
-                    >
-                      <Card className={cn(
-                        "border-gray-200 hover:border-gray-300 transition-colors group",
-                        isOverdue && "border-red-200 bg-red-50/30"
-                      )}>
-                        <div className="flex">
-                          {/* Status indicator */}
-                          <div className={cn(
-                            "w-1.5 flex-shrink-0 rounded-l-lg",
-                            isOverdue ? "bg-red-500" : statusConfig.barColor
-                          )} />
-
-                          <CardContent className="flex-1 p-5">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-3 mb-2">
-                                  <div className={cn(
-                                    "w-10 h-10 rounded-lg flex items-center justify-center",
-                                    statusConfig.bg
-                                  )}>
-                                    <StatusIcon className={cn("h-5 w-5", statusConfig.text)} />
-                                  </div>
-                                  <div>
-                                    <h3 className="text-base font-semibold text-gray-900">{stage.stage}</h3>
-                                    <div className="flex items-center gap-2 mt-1">
-                                      <Badge 
-                                        variant="outline" 
-                                        className={cn("text-xs", statusConfig.bg, statusConfig.text, statusConfig.border)}
-                                      >
-                                        <div className={cn("w-1.5 h-1.5 rounded-full mr-1.5", statusConfig.dot)} />
-                                        {stage.status}
-                                      </Badge>
-                                      {isOverdue && (
-                                        <Badge className="text-xs bg-red-100 text-red-700 border-red-200">
-                                          <AlertTriangle className="h-3 w-3 mr-1" />
-                                          Overdue
-                                        </Badge>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-gray-500">
-                                  <div className="flex items-center gap-1.5">
-                                    <Calendar className="h-4 w-4" />
-                                    <span>{format(startDate, 'MMM d, yyyy')}</span>
-                                    <ArrowUpRight className="h-3 w-3" />
-                                    <span>{format(endDate, 'MMM d, yyyy')}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1.5">
-                                    <Timer className="h-4 w-4" />
-                                    <span>{totalDays} days total</span>
-                                  </div>
-                                  {stage.status !== 'Completed' && (
-                                    <div className={cn(
-                                      "flex items-center gap-1.5",
-                                      daysRemaining < 0 ? "text-red-600" : daysRemaining < 7 ? "text-amber-600" : ""
-                                    )}>
-                                      <Clock className="h-4 w-4" />
-                                      <span>
-                                        {daysRemaining < 0 
-                                          ? `${Math.abs(daysRemaining)} days overdue` 
-                                          : `${daysRemaining} days remaining`
-                                        }
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* Alert settings */}
-                                <div className="flex items-center gap-4 mt-2">
-                                  {stage.alertSettings?.email && (
-                                    <span className="text-xs text-gray-400 flex items-center gap-1">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                                      Email alerts
-                                    </span>
-                                  )}
-                                  {stage.alertSettings?.sms && (
-                                    <span className="text-xs text-gray-400 flex items-center gap-1">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                                      SMS alerts
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-
-                              {/* Actions */}
-                              <div className="flex items-center gap-1">
-                                <Can permission={Permissions.UPDATE_PROJECT_STAGE}>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => handleEditStage(stage)}
-                                    className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                                  >
-                                    <Edit3 className="h-4 w-4" />
-                                  </Button>
-                                </Can>
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                                      <MoreVertical className="h-4 w-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end">
-                                    <DropdownMenuItem onClick={() => handleEditStage(stage)}>
-                                      <Eye className="h-4 w-4 mr-2" />
-                                      View Details
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem>
-                                      <Download className="h-4 w-4 mr-2" />
-                                      Export
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem>
-                                      <Share2 className="h-4 w-4 mr-2" />
-                                      Share
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </div>
-                      </Card>
-                    </motion.div>
-                  );
-                })}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {stages.map((stage, index) => (
+                  <motion.div
+                    key={stage._id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.03 }}
+                    className="flex"
+                  >
+                    <StageCard
+                      stage={stage}
+                      onOpen={() => setDetailsStageId(stage._id)}
+                      onEdit={() => handleEditStage(stage)}
+                    />
+                  </motion.div>
+                ))}
               </div>
             )}
           </motion.div>
@@ -632,6 +614,31 @@ export function Timeline() {
         }}
       />
 
+      {currentProject && (
+        <ApproversDialog
+          open={approversOpen}
+          onOpenChange={setApproversOpen}
+          projectId={currentProject._id}
+          access={access}
+          onSaved={(next) => setAccess((prev) => ({ ...prev, approvers: next.approvers }))}
+        />
+      )}
+
+      <StageDetailsDialog
+        stage={stages.find((s) => s._id === detailsStageId) || null}
+        open={!!detailsStageId}
+        onOpenChange={(open) => !open && setDetailsStageId(null)}
+        canApproveStages={access.canApproveStages}
+        canApproveItems={access.canApproveItems}
+        onStageUpdated={handleStageUpdated}
+        onReload={() => loadTimelineData({ silent: true })}
+        onEdit={(stage) => {
+          // Close the details view first so only one dialog is open
+          setDetailsStageId(null);
+          handleEditStage(stage);
+        }}
+      />
+
       <ProgressTrackingModal
         open={progressModalOpen}
         onOpenChange={setProgressModalOpen}
@@ -642,5 +649,7 @@ export function Timeline() {
         }}
       />
     </div>
+    </TimelineLockContext.Provider>
+    </ProjectBudgetContext.Provider>
   );
 }

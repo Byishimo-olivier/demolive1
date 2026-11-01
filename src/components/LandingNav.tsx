@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Menu, X, Building2 } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
+import { BrandLogo } from '@/components/BrandLogo';
 
 export function LandingNav() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -53,12 +54,7 @@ export function LandingNav() {
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
           <NavLink to="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gray-900 flex items-center justify-center">
-              <Building2 className="h-4 w-4 text-white" />
-            </div>
-            <span className="text-lg font-bold text-gray-900 font-heading">
-              InfraSoko
-            </span>
+            <BrandLogo />
           </NavLink>
 
           {/* Desktop Navigation */}

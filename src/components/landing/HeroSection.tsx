@@ -122,9 +122,9 @@ export function HeroSection() {
                     />
                     <defs>
                       <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" stopColor="#3B82F6" />
-                        <stop offset="50%" stopColor="#8B5CF6" />
-                        <stop offset="100%" stopColor="#A855F7" />
+                        <stop offset="0%" stopColor="#EA580C" />
+                        <stop offset="50%" stopColor="#111827" />
+                        <stop offset="100%" stopColor="#FDBA74" />
                       </linearGradient>
                     </defs>
                   </motion.svg>

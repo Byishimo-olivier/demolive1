@@ -46,7 +46,7 @@ const invoiceData = [
   { status: 'Overdue', value: 5 },
 ];
 
-const COLORS = ['#10B981', '#3B82F6', '#EF4444', '#F59E0B'];
+const COLORS = ['#10B981', '#EA580C', '#EF4444', '#F59E0B'];
 
 type FinancialOverviewProps = {
   projectId?: string;
@@ -129,7 +129,7 @@ export function FinancialOverview({ projectId }: FinancialOverviewProps) {
                   <Line
                     type="monotone"
                     dataKey="planned"
-                    stroke="#3B82F6"
+                    stroke="#EA580C"
                     name="Planned"
                   />
                   <Line
@@ -154,7 +154,7 @@ export function FinancialOverview({ projectId }: FinancialOverviewProps) {
                   <YAxis />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="value" fill="#3B82F6" name="Amount (RWF)" />
+                  <Bar dataKey="value" fill="#EA580C" name="Amount (RWF)" />
                 </BarChart>
               </ResponsiveContainer>
             </div>

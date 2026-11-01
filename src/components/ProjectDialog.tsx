@@ -5,9 +5,11 @@ import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import * as z from "zod";
 import { projectApi } from "../lib/project-api";
+import { financeApi } from "../lib/finance-api";
 import type { Project, ProjectFormData } from "../types";
 import { UserRole } from "../types";
 import { humanizeLabel, getFileUrl } from "../lib/utils";
+import { getErrorMessage } from "../utils/error-handler";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import {
@@ -44,6 +46,11 @@ const projectSchema = z.object({
     .min(0, "Progress must be at least 0")
     .max(100, "Progress cannot exceed 100"),
   budget: z.number().min(0, "Budget must be a positive number"),
+  clientName: z.string().max(200).optional(),
+  contractAmount: z.number().min(0, "Contract amount must be a positive number").optional(),
+  contactName: z.string().max(200).optional(),
+  contactPhone: z.string().max(50).optional(),
+  contactEmail: z.union([z.string().email("Enter a valid email"), z.literal("")]).optional(),
   description: z.string().optional(),
 });
 
@@ -64,6 +71,27 @@ export function ProjectDialog({
   const [teamMembers, setTeamMembers] = useState<Array<{ email: string; role: UserRole }>>([]);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  // With finance budgets, the project budget is their category total (updated automatically)
+  const [budgetCalculated, setBudgetCalculated] = useState(false);
+
+  useEffect(() => {
+    if (!open || !project?._id) {
+      setBudgetCalculated(false);
+      return;
+    }
+    let cancelled = false;
+    financeApi
+      .getBudget(project._id)
+      .then((res: any) => {
+        const data = res?.data;
+        // The API answers with a placeholder (no _id) when the project has no budget yet
+        if (!cancelled) setBudgetCalculated(Array.isArray(data) ? data.some((b: any) => b?._id) : !!data?._id);
+      })
+      .catch(() => !cancelled && setBudgetCalculated(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [open, project?._id]);
   const [fileDescription, setFileDescription] = useState<string>("");
 
   type ProjectDoc = { filePath: string; description?: string };
@@ -86,6 +114,11 @@ export function ProjectDialog({
           type: project.type,
           progress: project.progress,
           budget: project.budget,
+          clientName: project.clientName || "",
+          contractAmount: project.contractAmount || 0,
+          contactName: project.contactName || "",
+          contactPhone: project.contactPhone || "",
+          contactEmail: project.contactEmail || "",
           description: project.projectDescription,
         }
       : {
@@ -95,6 +128,11 @@ export function ProjectDialog({
           type: "Capital",
           progress: 0,
           budget: 0,
+          clientName: "",
+          contractAmount: 0,
+          contactName: "",
+          contactPhone: "",
+          contactEmail: "",
           description: "",
         },
   });
@@ -109,6 +147,11 @@ export function ProjectDialog({
         type: project.type,
         progress: project.progress,
         budget: project.budget,
+        clientName: project.clientName || "",
+        contractAmount: project.contractAmount || 0,
+        contactName: project.contactName || "",
+        contactPhone: project.contactPhone || "",
+        contactEmail: project.contactEmail || "",
         description: project.projectDescription,
       });
 
@@ -128,6 +171,11 @@ export function ProjectDialog({
         type: "Capital",
         progress: 0,
         budget: 0,
+        clientName: "",
+        contractAmount: 0,
+        contactName: "",
+        contactPhone: "",
+        contactEmail: "",
         description: "",
       });
       setExistingDocuments([]);
@@ -164,6 +212,10 @@ export function ProjectDialog({
       if (selectedFile) {
         formData.file = selectedFile;
       }
+      // A calculated budget is kept in sync by the server
+      if (budgetCalculated) {
+        delete formData.budget;
+      }
 
       console.log("Sending data to API:", formData);
 
@@ -182,20 +234,26 @@ export function ProjectDialog({
       // Send invitations for team members
       const validTeamMembers = teamMembers.filter(tm => tm.email.trim() && tm.role);
       if (validTeamMembers.length > 0) {
+        let sent = 0;
         for (const member of validTeamMembers) {
           try {
-            await projectApi.invite({
+            const res = await projectApi.invite({
               projectId,
-              email: member.email,
+              email: member.email.trim(),
               role: member.role,
             });
+            if (res?.data?.emailSent === false) {
+              toast.error(`Invitation for ${member.email} saved, but the email could not be sent. Invite them again from the project's team to get a link to share.`);
+            } else {
+              sent++;
+            }
           } catch (err) {
             console.error("Failed to invite user", err);
-            toast.error(`Failed to invite ${member.email}`);
+            toast.error(`${member.email}: ${getErrorMessage(err, "Failed to invite")}`);
           }
         }
-        if (validTeamMembers.length > 0) {
-          toast.success(`Sent ${validTeamMembers.length} invitation(s)`);
+        if (sent > 0) {
+          toast.success(`Sent ${sent} invitation(s)`);
         }
       }
 
@@ -288,6 +346,77 @@ export function ProjectDialog({
                 )}
               />
 
+              <div className="space-y-3 rounded-lg border border-gray-200 p-4">
+                <p className="text-sm font-semibold text-gray-900">Client &amp; contract</p>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="clientName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Client</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g. City of Kigali" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="contractAmount"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Contract amount (RWF)</FormLabel>
+                        <FormControl>
+                          <Input type="number" min={0} {...field} onChange={(e) => field.onChange(Number(e.target.value))} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="contactName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Contact person</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Name" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="contactPhone"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Contact phone</FormLabel>
+                        <FormControl>
+                          <Input placeholder="+250…" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="contactEmail"
+                    render={({ field }) => (
+                      <FormItem className="md:col-span-2">
+                        <FormLabel>Contact email</FormLabel>
+                        <FormControl>
+                          <Input type="email" placeholder="name@example.com" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+
               <FormField
                 control={form.control}
                 name="budget"
@@ -298,9 +427,15 @@ export function ProjectDialog({
                       <Input
                         type="number"
                         {...field}
+                        disabled={budgetCalculated}
                         onChange={(e) => field.onChange(Number(e.target.value))}
                       />
                     </FormControl>
+                    {budgetCalculated && (
+                      <p className="text-xs text-muted-foreground">
+                        Calculated automatically: the total of the budget categories in Finance → Budget.
+                      </p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}

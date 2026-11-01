@@ -1,404 +1,451 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '../ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Card, CardContent } from '../ui/card';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { financeApi, type Expense, type CreateExpenseRequest } from '../../lib/finance-api';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
+import { financeApi, type Expense, type CreateExpenseRequest, type ExpenseSourceKind } from '../../lib/finance-api';
+import { approvalsApi } from '@/lib/approvals-api';
 import { ExpenseCategory } from '../../types';
-import { Plus, Edit, Trash2, DollarSign, FileText, Paperclip, CheckCircle, XCircle, Loader2, Eye } from 'lucide-react';
+import { Plus, Edit, Trash2, FileText, Paperclip, CheckCircle, XCircle, Loader2, Eye, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
-import { Can } from '../PermissionGate';
-import { Permissions } from '@/constants/permissions';
 import { useCurrency } from '@/contexts/CurrencyContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { getErrorMessage } from '@/utils/error-handler';
+import { cn } from '@/lib/utils';
 import { ExpenseDetailsModal } from './ExpenseDetailsModal';
+import { EXPENSE_SOURCES, EXPENSE_SOURCE_STYLES, expenseSourceKind, expenseSourceLabel } from './expense-source';
 
 interface Props {
   projectId: string;
+  // Already filtered by the period picked on the Finance page
   expenses: Expense[];
   onSuccess: () => void;
 }
 
+const STATUS_STYLES: Record<string, string> = {
+  pending: 'bg-amber-50 text-amber-700',
+  approved: 'bg-emerald-50 text-emerald-700',
+  rejected: 'bg-red-50 text-red-700',
+};
+
+const CATEGORY_STYLES: Record<string, string> = {
+  materials: 'bg-blue-50 text-blue-700',
+  labor: 'bg-green-50 text-green-700',
+  equipment: 'bg-purple-50 text-purple-700',
+  fuel: 'bg-orange-50 text-orange-700',
+  overheads: 'bg-gray-100 text-gray-700',
+  subcontractors: 'bg-rose-50 text-rose-700',
+};
+
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+const emptyForm = (projectId: string): CreateExpenseRequest => ({
+  projectId,
+  date: format(new Date(), 'yyyy-MM-dd'),
+  category: '',
+  amount: 0,
+  description: '',
+});
+
 export function ExpenseRecordingForm({ projectId, expenses, onSuccess }: Props) {
   const { formatAmount } = useCurrency();
-  const [isCreating, setIsCreating] = useState(false);
+  const { user } = useAuth();
+  const [formOpen, setFormOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [viewExpense, setViewExpense] = useState<Expense | null>(null);
-  const [formData, setFormData] = useState<CreateExpenseRequest>({
-    projectId,
-      date: new Date().toISOString().split('T')[0],
-    category: '',
-      amount: 0,
-      description: '',
-  });
+  const [rejecting, setRejecting] = useState<Expense | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [formData, setFormData] = useState<CreateExpenseRequest>(emptyForm(projectId));
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | ExpenseSourceKind>('all');
+
+  // Who may record and approve manual expenses on this project (decided by the server)
+  const { data: access } = useQuery({
+    queryKey: ['md-approvals', projectId],
+    queryFn: async () => (await approvalsApi.getProjectSettings(projectId)).data,
+    enabled: !!projectId,
+    staleTime: 60_000,
+  });
+  const canRecord = !!access?.canRecordManualExpense;
+  const canApprove = !!access?.canApproveExpenses;
+  const isOwner = !!access?.isOwner;
+
+  const visible = useMemo(
+    () =>
+      expenses.filter(
+        (e) =>
+          (statusFilter === 'all' || e.approvalStatus === statusFilter) &&
+          (sourceFilter === 'all' || expenseSourceKind(e) === sourceFilter)
+      ),
+    [expenses, statusFilter, sourceFilter]
+  );
+  const totals = useMemo(() => {
+    const sum = (status: string) =>
+      visible.filter((e) => e.approvalStatus === status).reduce((acc, e) => acc + e.amount, 0);
+    return { approved: sum('approved'), pending: sum('pending'), rejected: sum('rejected') };
+  }, [visible]);
+
+  const openCreate = () => {
+    setEditingExpense(null);
+    setFormData(emptyForm(projectId));
+    setSelectedFile(null);
+    setFormOpen(true);
+  };
+
+  const openEdit = (expense: Expense) => {
+    setEditingExpense(expense);
+    setFormData({
+      projectId,
+      date: format(new Date(expense.date), 'yyyy-MM-dd'),
+      category: expense.category,
+      amount: expense.amount,
+      description: expense.description,
+    });
+    setSelectedFile(null);
+    setFormOpen(true);
+  };
+
+  const closeForm = () => {
+    setFormOpen(false);
+    setEditingExpense(null);
+    setSelectedFile(null);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (isSubmitting) return;
-    
+    if (!formData.category) {
+      toast.error('Choose a category');
+      return;
+    }
+    if (!(formData.amount > 0)) {
+      toast.error('Enter an amount greater than zero');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      // Convert date string to ISO datetime string
-      const data = { 
+      const data: CreateExpenseRequest = {
         ...formData,
-        date: new Date(formData.date + 'T00:00:00.000Z').toISOString()
+        date: new Date(`${formData.date}T00:00:00.000Z`).toISOString(),
+        ...(selectedFile ? { document: selectedFile } : {}),
       };
-      
-      if (selectedFile) {
-        data.document = selectedFile;
-      }
-
       if (editingExpense) {
-        await financeApi.updateExpense(editingExpense._id, data);
-        toast.success('Expense updated successfully');
+        const { projectId: _projectId, ...changes } = data;
+        await financeApi.updateExpense(editingExpense._id, changes);
+        toast.success('Expense updated');
       } else {
         await financeApi.createExpense(data);
-        toast.success('Expense recorded successfully');
+        toast.success('Expense recorded');
       }
-      
-      resetForm();
+      closeForm();
       onSuccess();
     } catch (error) {
-      console.error('Error saving expense:', error);
       toast.error(getErrorMessage(error, 'Failed to save expense'));
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleEdit = (expense: Expense) => {
-    setEditingExpense(expense);
-    setFormData({
-      projectId,
-      date: new Date(expense.date).toISOString().split('T')[0],
-      category: expense.category,
-      amount: expense.amount,
-      description: expense.description,
-    });
-    setSelectedFile(null);
-  };
-
-  const handleDelete = async (expenseId: string) => {
-    if (!confirm('Are you sure you want to delete this expense?')) return;
-    
-    if (deletingId) return;
-    
-    setDeletingId(expenseId);
+  const handleDelete = async (expense: Expense) => {
+    if (busyId || !confirm('Delete this expense?')) return;
+    setBusyId(expense._id);
     try {
-      await financeApi.deleteExpense(expenseId);
-      toast.success('Expense deleted successfully');
+      await financeApi.deleteExpense(expense._id);
+      toast.success('Expense deleted');
       onSuccess();
     } catch (error) {
-      console.error('Error deleting expense:', error);
       toast.error(getErrorMessage(error, 'Failed to delete expense'));
     } finally {
-      setDeletingId(null);
+      setBusyId(null);
     }
   };
 
-  const handleApprovalStatusUpdate = async (expenseId: string, status: string) => {
-    if (updatingStatusId) return;
-    
-    setUpdatingStatusId(expenseId);
+  const setStatus = async (expense: Expense, status: 'approved' | 'rejected', comments?: string) => {
+    if (busyId) return;
+    setBusyId(expense._id);
     try {
-      await financeApi.updateExpenseApprovalStatus(expenseId, status);
-      toast.success(`Expense ${status} successfully`);
+      await financeApi.updateExpenseApprovalStatus(expense._id, status, comments);
+      toast.success(status === 'approved' ? 'Expense approved' : 'Expense rejected');
+      setRejecting(null);
+      setRejectReason('');
       onSuccess();
     } catch (error) {
-      console.error('Error updating approval status:', error);
-      toast.error(getErrorMessage(error, 'Failed to update approval status'));
+      toast.error(getErrorMessage(error, 'Failed to update the expense'));
     } finally {
-      setUpdatingStatusId(null);
+      setBusyId(null);
     }
-  };
-
-  const resetForm = () => {
-    setFormData({
-      projectId,
-      date: new Date().toISOString().split('T')[0],
-      category: '',
-      amount: 0,
-      description: '',
-    });
-    setSelectedFile(null);
-    setEditingExpense(null);
-    setIsCreating(false);
-    setIsSubmitting(false);
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-    }
-  };
-
-  const getCategoryColor = (category: string) => {
-    const colors = {
-      'materials': 'bg-blue-100 text-blue-800',
-      'labor': 'bg-green-100 text-green-800',
-      'equipment': 'bg-purple-100 text-purple-800',
-      'fuel': 'bg-orange-100 text-orange-800',
-      'overheads': 'bg-gray-100 text-gray-800',
-    };
-    return colors[category as keyof typeof colors] || 'bg-gray-100 text-gray-800';
-  };
-
-  const getApprovalStatusColor = (status: string) => {
-    const colors = {
-      'pending': 'bg-yellow-100 text-yellow-800',
-      'approved': 'bg-green-100 text-green-800',
-      'rejected': 'bg-red-100 text-red-800',
-    };
-    return colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800';
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Expense Recording</h2>
-        <Can permission={Permissions.CREATE_EXPENSE}>
-          <Button onClick={() => setIsCreating(true)} disabled={isCreating || isSubmitting}>
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-xl font-semibold text-gray-900">Expenses</h2>
+        {canRecord && (
+          <Button onClick={openCreate} className="bg-gray-900 text-white hover:bg-gray-800">
             <Plus className="mr-2 h-4 w-4" />
-            Record Expense
+            Record expense
           </Button>
-        </Can>
+        )}
       </div>
 
-      {/* Create/Edit Form */}
-      {isCreating || editingExpense ? (
+      {/* Totals for what is shown */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {[
+          { label: 'Approved', value: totals.approved, tone: 'text-gray-900' },
+          { label: 'Pending approval', value: totals.pending, tone: 'text-amber-700' },
+          { label: 'Rejected', value: totals.rejected, tone: 'text-gray-500' },
+        ].map((tile) => (
+          <div key={tile.label} className="rounded-xl border border-gray-200 bg-white px-4 py-3">
+            <p className="text-xs font-medium text-gray-500">{tile.label}</p>
+            <p className={cn('mt-1 text-lg font-semibold', tile.tone)}>{formatAmount(tile.value)}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="h-9 w-[160px] bg-white">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="approved">Approved</SelectItem>
+            <SelectItem value="rejected">Rejected</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as typeof sourceFilter)}>
+          <SelectTrigger className="h-9 w-[190px] bg-white">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All sources</SelectItem>
+            {EXPENSE_SOURCES.map((s) => (
+              <SelectItem key={s.value} value={s.value}>
+                {s.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="text-sm text-gray-500">{visible.length} of {expenses.length}</span>
+      </div>
+
+      {visible.length === 0 ? (
         <Card>
-          <CardHeader>
-            <CardTitle>{editingExpense ? 'Edit Expense' : 'Record New Expense'}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="date">Date</Label>
-                  <Input
-                    id="date"
-                    type="date"
-                    value={formData.date}
-                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                    required
-              />
-            </div>
-
-                <div>
-                  <Label htmlFor="category">Category</Label>
-                  <Select value={formData.category} onValueChange={(value) => setFormData({ ...formData, category: value })}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select category" />
-                        </SelectTrigger>
-                      <SelectContent>
-                      {Object.values(ExpenseCategory).map((category) => (
-                        <SelectItem key={category} value={category}>
-                          {category.charAt(0).toUpperCase() + category.slice(1)}
-                        </SelectItem>
-                      ))}
-                      </SelectContent>
-                    </Select>
-                </div>
-              </div>
-
-              <div>
-                <Label htmlFor="description">Description</Label>
-                      <Input
-                  id="description"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Enter expense description..."
-                  required
-              />
-            </div>
-
-              <div>
-                <Label htmlFor="amount">Amount</Label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    id="amount"
-                    type="number"
-                    className="pl-10"
-                    value={formData.amount}
-                    onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })}
-                    placeholder="0.00"
-                    step="0.01"
-                    min="0"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <Label htmlFor="document">Supporting Document (Optional)</Label>
-                <Input
-                  id="document"
-                  type="file"
-                  onChange={handleFileChange}
-                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Accepted formats: PDF, DOC, DOCX, JPG, JPEG, PNG
-                </p>
-              </div>
-
-              <div className="flex gap-2">
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {editingExpense ? 'Updating...' : 'Recording...'}
-                    </>
-                  ) : (
-                    editingExpense ? 'Update Expense' : 'Record Expense'
-                  )}
-                </Button>
-                <Button type="button" variant="outline" onClick={resetForm} disabled={isSubmitting}>
-                  Cancel
-                </Button>
-              </div>
-            </form>
+          <CardContent className="p-10 text-center">
+            <FileText className="mx-auto mb-3 h-10 w-10 text-gray-300" />
+            <p className="text-gray-500">No expenses for these filters</p>
           </CardContent>
         </Card>
-      ) : null}
-
-      {/* Expenses List */}
-      <div className="space-y-4">
-        <h3 className="text-lg font-semibold">Expense History</h3>
-        {expenses.length === 0 ? (
-          <Card>
-            <CardContent className="p-8 text-center">
-              <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">No expenses recorded yet</p>
-            </CardContent>
-          </Card>
-        ) : (
-          expenses.map((expense) => (
-            <Card key={expense._id}>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <h4 className="font-semibold">{expense.description}</h4>
-                      <span className={`px-2 py-1 rounded-full text-xs ${getCategoryColor(expense.category)}`}>
-                        {expense.category.charAt(0).toUpperCase() + expense.category.slice(1)}
-                      </span>
-                      <span className={`px-2 py-1 rounded-full text-xs ${getApprovalStatusColor(expense.approvalStatus)}`}>
-                        {expense.approvalStatus.charAt(0).toUpperCase() + expense.approvalStatus.slice(1)}
-                      </span>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-gray-50">
+                <TableHead className="whitespace-nowrap">Date</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead>Source</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+                <TableHead className="w-[1%]" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visible.map((expense) => {
+                const kind = expenseSourceKind(expense);
+                const manual = kind === 'Manual';
+                const mine = !!user?._id && expense.createdBy === user._id;
+                const busy = busyId === expense._id;
+                const canEdit = manual && expense.approvalStatus !== 'approved' && (mine || isOwner);
+                const canDelete = manual && (canApprove || (mine && expense.approvalStatus !== 'approved'));
+                return (
+                  <TableRow key={expense._id}>
+                    <TableCell className="whitespace-nowrap text-sm text-gray-600">
                       {format(new Date(expense.date), 'MMM d, yyyy')}
-                    </p>
-                    {expense.documents && expense.documents.length > 0 && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        <Paperclip className="inline-block mr-1 h-4 w-4 text-muted-foreground" /> {expense.documents.length} document(s) attached
-                      </p>
-                    )}
-                    {expense.approvalStatus === 'approved' && (
-                      <p className="text-xs text-green-600 mt-1">
-                        ✓ Approved - cannot be modified
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-lg font-bold text-red-600">
-                      {formatAmount(expense.amount)}
-                    </span>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setViewExpense(expense)}
-                        title="View Details"
+                    </TableCell>
+                    <TableCell className="min-w-[200px]">
+                      <p className="font-medium text-gray-900">{expense.description}</p>
+                      {expense.documents?.length > 0 && (
+                        <p className="mt-0.5 flex items-center gap-1 text-xs text-gray-500">
+                          <Paperclip className="h-3 w-3" />
+                          {expense.documents.length} document{expense.documents.length > 1 ? 's' : ''}
+                        </p>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={cn('inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs', EXPENSE_SOURCE_STYLES[kind])}
+                        title={manual ? undefined : 'Changes only through its source record'}
                       >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Can permission={Permissions.UPDATE_EXPENSE}>
-                        {expense.approvalStatus !== 'approved' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleEdit(expense)}
-                            disabled={isSubmitting || !!deletingId || !!updatingStatusId}
-                          >
+                        {!manual && <Lock className="h-3 w-3" />}
+                        {expenseSourceLabel(expense)}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className={cn('rounded-full px-2 py-0.5 text-xs', CATEGORY_STYLES[expense.category] ?? 'bg-gray-100 text-gray-700')}>
+                        {capitalize(expense.category)}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className={cn('rounded-full px-2 py-0.5 text-xs', STATUS_STYLES[expense.approvalStatus] ?? 'bg-gray-100 text-gray-700')}>
+                        {capitalize(expense.approvalStatus)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-right font-semibold text-gray-900">
+                      {formatAmount(expense.amount)}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => setViewExpense(expense)} title="View details">
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        {canApprove && manual && expense.approvalStatus !== 'approved' && (
+                          <Button variant="ghost" size="sm" onClick={() => setStatus(expense, 'approved')} disabled={!!busyId} title="Approve">
+                            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4 text-emerald-600" />}
+                          </Button>
+                        )}
+                        {canApprove && manual && expense.approvalStatus === 'pending' && (
+                          <Button variant="ghost" size="sm" onClick={() => setRejecting(expense)} disabled={!!busyId} title="Reject">
+                            <XCircle className="h-4 w-4 text-red-600" />
+                          </Button>
+                        )}
+                        {canEdit && (
+                          <Button variant="ghost" size="sm" onClick={() => openEdit(expense)} disabled={!!busyId} title="Edit">
                             <Edit className="h-4 w-4" />
                           </Button>
                         )}
-                        {expense.approvalStatus === 'pending' && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleApprovalStatusUpdate(expense._id, 'approved')}
-                              disabled={isSubmitting || !!deletingId || !!updatingStatusId}
-                            >
-                              {updatingStatusId === expense._id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <CheckCircle className="h-4 w-4 text-green-600" />
-                              )}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleApprovalStatusUpdate(expense._id, 'rejected')}
-                              disabled={isSubmitting || !!deletingId || !!updatingStatusId}
-                            >
-                              {updatingStatusId === expense._id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <XCircle className="h-4 w-4 text-red-600" />
-                              )}
-                            </Button>
-                          </>
-                        )}
-                        {expense.approvalStatus === 'rejected' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleApprovalStatusUpdate(expense._id, 'approved')}
-                            disabled={isSubmitting || !!deletingId || !!updatingStatusId}
-                          >
-                            {updatingStatusId === expense._id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <CheckCircle className="h-4 w-4 text-green-600" />
-                            )}
+                        {canDelete && (
+                          <Button variant="ghost" size="sm" onClick={() => handleDelete(expense)} disabled={!!busyId} title="Delete">
+                            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                           </Button>
                         )}
-                      </Can>
-                      <Can permission={Permissions.DELETE_EXPENSE}>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDelete(expense._id)}
-                          disabled={isSubmitting || !!deletingId || !!updatingStatusId}
-                        >
-                          {deletingId === expense._id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </Can>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))
-        )}
-      </div>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      {/* Record / edit */}
+      <Dialog open={formOpen} onOpenChange={(open) => (open ? setFormOpen(true) : closeForm())}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingExpense ? 'Edit expense' : 'Record expense'}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="expense-date">Date</Label>
+                <Input
+                  id="expense-date"
+                  type="date"
+                  value={formData.date}
+                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Category</Label>
+                <Select value={formData.category} onValueChange={(value) => setFormData({ ...formData, category: value })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.values(ExpenseCategory).map((category) => (
+                      <SelectItem key={category} value={category}>
+                        {capitalize(category)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="expense-description">Description</Label>
+              <Textarea
+                id="expense-description"
+                rows={2}
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="expense-amount">Amount (RWF)</Label>
+              <Input
+                id="expense-amount"
+                type="number"
+                value={formData.amount || ''}
+                onChange={(e) => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })}
+                step="0.01"
+                min="0"
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="expense-document">Supporting document</Label>
+              <Input
+                id="expense-document"
+                type="file"
+                onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp"
+              />
+            </div>
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" onClick={closeForm} disabled={isSubmitting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSubmitting} className="bg-gray-900 text-white hover:bg-gray-800">
+                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {editingExpense ? 'Save changes' : 'Record expense'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject with a reason */}
+      <Dialog open={!!rejecting} onOpenChange={(open) => !open && setRejecting(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reject expense</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-gray-600">
+              {rejecting?.description} · {rejecting ? formatAmount(rejecting.amount) : ''}
+            </p>
+            <Label htmlFor="reject-reason">Reason</Label>
+            <Textarea id="reject-reason" rows={3} value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} />
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setRejecting(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!rejectReason.trim() || !!busyId}
+              onClick={() => rejecting && setStatus(rejecting, 'rejected', rejectReason.trim())}
+            >
+              {busyId && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Reject
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {viewExpense && (
         <ExpenseDetailsModal

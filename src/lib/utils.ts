@@ -10,7 +10,8 @@ export function getFileUrl(path: string): string {
   if (path.startsWith('http://') || path.startsWith('https://')) return path;
   
   const baseUrl = import.meta.env.VITE_BASE_URL;
-  const filename = path.split('/').pop() || path;
+  // Older records store the server's file path, which uses backslashes on Windows
+  const filename = path.split(/[\\/]/).pop() || path;
   return `${baseUrl}/api/v1/upload/download/${filename}`;
 }
 

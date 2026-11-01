@@ -13,6 +13,9 @@ import {
   Loader2,
   BarChart3,
   ArrowRight,
+  ChevronDown,
+  FileSpreadsheet,
+  FileText,
 } from 'lucide-react';
 import { useProject } from '@/contexts/ProjectContext';
 import { useState, useEffect } from 'react';
@@ -22,12 +25,42 @@ import { cn } from '@/lib/utils';
 import { dashboardApi, type DashboardSummary } from '@/lib/dashboard-api';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { Link } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import { exportDashboard, type DashboardExportFormat } from '@/lib/dashboard-export';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { getErrorMessage } from '@/utils/error-handler';
+
+// Export button: asks which kind of file to download
+function ExportMenu({ exporting, onExport }: { exporting: boolean; onExport: (fileFormat: DashboardExportFormat) => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" disabled={exporting} className="h-9 border-gray-200">
+          {exporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+          Export
+          <ChevronDown className="h-3.5 w-3.5 ml-1.5 text-gray-400" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuItem onClick={() => onExport('excel')}>
+          <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-600" />
+          Excel (.xlsx)
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onExport('pdf')}>
+          <FileText className="h-4 w-4 mr-2 text-red-600" />
+          PDF (.pdf)
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 export function Dashboard() {
   const { currentProject } = useProject();
-  const { formatAmount } = useCurrency();
+  const { formatAmount, currency } = useCurrency();
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const { data: summaryData, isLoading: loading, refetch } = useQuery({
     queryKey: ['dashboardSummary', currentProject?.id],
@@ -50,8 +83,17 @@ export function Dashboard() {
     setTimeout(() => setIsRefreshing(false), 1000);
   };
 
-  const handleExport = () => {
-    console.log('Export dashboard data');
+  // Excel workbook of the dashboard (and the selected project's financials)
+  const handleExport = async (fileFormat: DashboardExportFormat) => {
+    setIsExporting(true);
+    try {
+      const fileName = await exportDashboard(currency, currentProject, fileFormat);
+      toast.success(`Downloaded ${fileName}`);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Could not export the dashboard'));
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const activeProjects = summaryData?.projectsByStatus['In Progress'] || 0;
@@ -89,15 +131,7 @@ export function Dashboard() {
               <RefreshCw className={cn("h-4 w-4 mr-2", isRefreshing && "animate-spin")} />
               Refresh
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExport}
-              className="h-9 border-gray-200"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
+            <ExportMenu exporting={isExporting} onExport={handleExport} />
           </div>
         </motion.div>
 
@@ -254,15 +288,7 @@ export function Dashboard() {
             <RefreshCw className={cn("h-4 w-4 mr-2", isRefreshing && "animate-spin")} />
             Refresh
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExport}
-            className="h-9 border-gray-200"
-          >
-            <Download className="h-4 w-4 mr-2" />
-            Export
-          </Button>
+          <ExportMenu exporting={isExporting} onExport={handleExport} />
         </div>
       </motion.div>
 
