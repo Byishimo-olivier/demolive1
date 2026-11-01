@@ -6,7 +6,6 @@ import {
   Briefcase,
   Users,
   Gavel,
-  CreditCard,
   Settings,
   ChevronDown,
   Building2,
@@ -53,7 +52,6 @@ const navigation = [
     icon: Gavel,
     permission: ['bidding:view-tender'],
   },
-  { name: 'Billing', to: '/billing', icon: CreditCard },
 ];
 
 const bottomNavigation = [
