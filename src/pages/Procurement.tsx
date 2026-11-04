@@ -174,7 +174,7 @@ export function Procurement() {
                 Procurement Management
               </h1>
               <p className="text-gray-500 mt-1">
-                Manage material requests, purchase orders, and goods received for {currentProject.name}
+                Manage requests, purchase orders, and goods received for {currentProject.name}
               </p>
             </div>
           </div>
@@ -192,7 +192,7 @@ export function Procurement() {
         {/* Quick Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-gray-100">
           {[
-            { label: 'Material Requests', value: materialRequests.length, subtext: `${pendingRequests} pending`, icon: ClipboardList },
+            { label: 'Requests', value: materialRequests.length, subtext: `${pendingRequests} pending`, icon: ClipboardList },
             { label: 'Purchase Orders', value: purchaseOrders.length, subtext: `${approvedPOs} approved · ${purchaseOrders.length - approvedPOs} draft`, icon: FileCheck },
             { label: 'High Priority', value: highPriorityRequests, subtext: 'Need attention', icon: AlertTriangle },
             { label: 'Total PO Value', value: formatAmount(totalPOValue), subtext: 'All orders', icon: DollarSign },
@@ -240,7 +240,7 @@ export function Procurement() {
                 )}
               >
                 <ClipboardList className="h-4 w-4" />
-                Material Requests
+                Requests
                 {materialRequests.length > 0 && (
                   <Badge variant="secondary" className="ml-1 bg-gray-200">{materialRequests.length}</Badge>
                 )}
@@ -262,6 +262,7 @@ export function Procurement() {
                 )}
               </TabsTrigger>
             </Can>
+            <Can permission={Permissions.VIEW_RECEIVING_NOTE}>
             <TabsTrigger
               value="deliveries"
               className={cn(
@@ -276,6 +277,7 @@ export function Procurement() {
                 <Badge variant="secondary" className="ml-1 bg-gray-200">{grns.length}</Badge>
               )}
             </TabsTrigger>
+            </Can>
           </TabsList>
         </motion.div>
 
@@ -300,7 +302,7 @@ export function Procurement() {
                         <ClipboardList className="h-6 w-6 text-purple-600" />
                       </div>
                       <div className="flex-1">
-                        <h3 className="font-semibold text-gray-900">New Material Request</h3>
+                        <h3 className="font-semibold text-gray-900">New Request</h3>
                         <p className="text-sm text-gray-500">Request materials for your project</p>
                       </div>
                       <ArrowRight className="h-5 w-5 text-gray-400 group-hover:text-purple-600 group-hover:translate-x-1 transition-all" />
@@ -361,7 +363,7 @@ export function Procurement() {
                       <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
                         <ClipboardList className="h-5 w-5 text-purple-600" />
                       </div>
-                      <CardTitle className="text-base">Recent Material Requests</CardTitle>
+                      <CardTitle className="text-base">Recent Requests</CardTitle>
                     </div>
                     <Button
                       variant="ghost"
@@ -380,7 +382,7 @@ export function Procurement() {
                         <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center mx-auto mb-3">
                           <ClipboardList className="h-6 w-6 text-gray-400" />
                         </div>
-                        <p className="text-gray-500">No material requests yet</p>
+                        <p className="text-gray-500">No requests yet</p>
                       </div>
                     ) : (
                       materialRequests.slice(0, 4).map((request, index) => {
@@ -631,16 +633,18 @@ export function Procurement() {
         </Can>
 
         {/* Deliveries: receiving notes, inspection, review; GRNs come from accepted deliveries */}
-        <TabsContent value="deliveries" className="mt-0">
-          <DeliveriesPanel
-            projectId={currentProject._id}
-            purchaseOrders={purchaseOrders}
-            grns={grns}
-            formOpen={grnModalOpen}
-            onFormOpenChange={setGrnModalOpen}
-            onChanged={loadProcurementData}
-          />
-        </TabsContent>
+        <Can permission={Permissions.VIEW_RECEIVING_NOTE}>
+          <TabsContent value="deliveries" className="mt-0">
+            <DeliveriesPanel
+              projectId={currentProject._id}
+              purchaseOrders={purchaseOrders}
+              grns={grns}
+              formOpen={grnModalOpen}
+              onFormOpenChange={setGrnModalOpen}
+              onChanged={loadProcurementData}
+            />
+          </TabsContent>
+        </Can>
       </Tabs>
 
       {/* Modals */}

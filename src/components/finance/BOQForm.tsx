@@ -273,7 +273,7 @@ export function BOQForm({ boq, onSuccess, onCancel }: BOQFormProps) {
                         type="number"
                         min="0"
                         step="0.01"
-                        value={item.quantity}
+                        value={item.quantity || ''}
                         onChange={(e) => updateItem(sectionIndex, itemIndex, 'quantity', parseFloat(e.target.value) || 0)}
                         placeholder="0"
                         required
@@ -289,7 +289,7 @@ export function BOQForm({ boq, onSuccess, onCancel }: BOQFormProps) {
                         type="number"
                         min="0"
                         step="0.01"
-                        value={item.rate}
+                        value={item.rate || ''}
                         onChange={(e) => updateItem(sectionIndex, itemIndex, 'rate', parseFloat(e.target.value) || 0)}
                         placeholder="0"
                         required

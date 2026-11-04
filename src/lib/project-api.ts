@@ -45,8 +45,9 @@ export interface ProjectFinancials {
     pending: number;
     byCategory: { category: string; planned: number; spent: number }[];
   };
-  invoices: { invoiced: number; paid: number; outstanding: number };
-  // Contract value minus approved expenses so far
+  // invoiced: approved and paid invoices (income); awaitingApproval: submitted, not approved yet
+  invoices: { invoiced: number; paid: number; outstanding: number; awaitingApproval?: number };
+  // Income minus approved expenses
   profitLoss: number;
   marginPercent: number | null;
   // Contract value minus the whole budget

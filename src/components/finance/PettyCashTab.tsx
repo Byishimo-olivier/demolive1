@@ -194,6 +194,13 @@ export function PettyCashTab({ projectId, onExpensesChanged }: PettyCashTabProps
                     </TableCell>
                     <TableCell className="min-w-[200px]">
                       <p className="text-gray-900">{record.description}</p>
+                      {!payment && (record.sentBy || record.receivedBy) && (
+                        <p className="text-xs text-gray-500">
+                          {record.sentBy ? `Sent by ${record.sentBy.name}` : 'Sent'}
+                          {record.receivedBy ? ` → received by ${record.receivedBy.name}` : ''}
+                          {record.phone ? ` · ${record.phone}` : ''}
+                        </p>
+                      )}
                       <p className="flex items-center gap-2 text-xs text-gray-500">
                         {payment ? capitalize(record.category ?? '') : 'Top-up'}
                         {record.documents.length > 0 && (

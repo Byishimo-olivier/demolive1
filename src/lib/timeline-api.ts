@@ -22,6 +22,10 @@ export interface WorkItem {
   _id: string;
   name: string;
   wbsCode?: string;
+  // The activity's own number in the schedule (e.g. from an imported programme)
+  activityId?: string;
+  // Activities that must finish first, by number (e.g. "4,5")
+  predecessors?: string;
   description?: string;
   startDate: string;
   endDate: string;
@@ -128,8 +132,8 @@ export interface PlannedItem {
   description?: string;
   startDate: string;
   endDate: string;
-  budget?: number;
-  actualCost?: number;
+  // How far the work is (0-100)
+  progressPercentage?: number;
 }
 
 export interface PlannedSubStage extends PlannedItem {
@@ -210,7 +214,27 @@ export interface ApiResponse<T> {
 export type StageResponse = ApiResponse<ProjectStage>;
 
 // API Functions
+// One activity of a programme made outside (e.g. Excel)
+export interface ScheduleImportRow {
+  activityId?: string;
+  workstream: string;
+  activity: string;
+  startDate: string;
+  endDate: string;
+  predecessors?: string;
+  owner?: string;
+}
+
 export const timelineApi = {
+  // Each workstream becomes a stage and each activity one of its sub-stages
+  importSchedule: async (projectId: string, mode: 'add' | 'replace', rows: ScheduleImportRow[]) => {
+    const response = await api.post<ApiResponse<{ stages: number; workstreams: number; activities: number }>>(
+      `/timeline/import/${projectId}`,
+      { mode, rows }
+    );
+    return response.data;
+  },
+
   createProjectStage: async (data: CreateProjectStageRequest) => {
     const response = await api.post<StageResponse>('/timeline/project-stage', data, {
       requiresPermission: Permissions.CREATE_PROJECT_STAGE

@@ -97,8 +97,9 @@ export const autoMapColumns = (headers: string[], fields: ImportField[]): Record
   return mapping;
 };
 
-/** Excel stores dates as serial day numbers or Date objects; return yyyy-mm-dd or '' */
-export const parseDateCell = (raw: unknown): string => {
+/** Excel stores dates as serial day numbers or Date objects; return yyyy-mm-dd or ''.
+ *  Dates written as text are read day/month/year unless monthFirst (month/day/year). */
+export const parseDateCell = (raw: unknown, monthFirst = false): string => {
   if (raw === '' || raw === null || raw === undefined) return '';
   if (raw instanceof Date && !isNaN(raw.getTime())) {
     return new Date(Date.UTC(raw.getFullYear(), raw.getMonth(), raw.getDate())).toISOString().split('T')[0];
@@ -110,7 +111,10 @@ export const parseDateCell = (raw: unknown): string => {
   const text = String(raw).trim();
   // dd/mm/yyyy (common in Rwanda) before falling back to the browser's parser
   const dmy = text.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
-  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  if (dmy) {
+    const [day, month] = monthFirst ? [dmy[2], dmy[1]] : [dmy[1], dmy[2]];
+    return `${dmy[3]}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
   const date = new Date(text);
   return isNaN(date.getTime()) ? text : date.toISOString().split('T')[0];
 };
@@ -132,6 +136,18 @@ export const buildRows = (
   fields: ImportField[]
 ): ImportRow[] => {
   const result: ImportRow[] = [];
+  // Dates written as text are month/day/year when any date of the sheet can only be read that way
+  // (e.g. 06/13/2026); a sheet uses one format, so this applies to all its date columns
+  const dateCols = fields
+    .filter((f) => f.type === 'date')
+    .map((f) => mapping[f.key])
+    .filter((c): c is number => c !== null && c !== undefined);
+  const monthFirstSheet = sheet.rows.slice(headerRow + 1).some((r) =>
+    dateCols.some((col) => {
+      const m = String(r?.[col] ?? '').trim().match(/^(\d{1,2})[/.-](\d{1,2})[/.-]\d{4}$/);
+      return !!m && Number(m[1]) <= 12 && Number(m[2]) > 12;
+    })
+  );
   for (const raw of sheet.rows.slice(headerRow + 1)) {
     if (!raw || raw.every((cell) => cellText(cell) === '')) continue;
     // Totals lines ("Total", "Sub-total carried to summary"…) are summaries, not items
@@ -149,7 +165,7 @@ export const buildRows = (
       } else if (field.parse) {
         value = field.parse(cell);
       } else if (field.type === 'date') {
-        value = parseDateCell(cell);
+        value = parseDateCell(cell, monthFirstSheet);
       } else if (field.type === 'number') {
         value = parseNumberCell(cell);
       } else {
@@ -405,5 +421,102 @@ export const REQUEST_IMPORT_FIELDS: ImportField[] = [
     label: 'Specifications',
     type: 'text',
     synonyms: ['specification', 'specifications', 'specs', 'spec', 'remarks', 'notes'],
+  },
+];
+
+// Workers for the labour register: one row per person
+export const WORKER_IMPORT_FIELDS: ImportField[] = [
+  {
+    key: 'fullName',
+    label: 'Full name',
+    type: 'text',
+    required: true,
+    synonyms: ['name', 'full name', 'names', 'worker', 'worker name', 'employee', 'employee name', 'amazina'],
+  },
+  {
+    key: 'trade',
+    label: 'Trade',
+    type: 'text',
+    synonyms: ['trade', 'position', 'role', 'job', 'skill', 'occupation', 'function'],
+  },
+  {
+    key: 'phone',
+    label: 'Phone',
+    type: 'text',
+    synonyms: ['phone', 'phone number', 'telephone', 'tel', 'mobile', 'contact', 'momo'],
+  },
+  {
+    key: 'nationalId',
+    label: 'National ID',
+    type: 'text',
+    synonyms: ['national id', 'id', 'id number', 'nid', 'id no', 'identity', 'indangamuntu'],
+  },
+  {
+    key: 'rate',
+    label: 'Rate per day (RWF)',
+    type: 'number',
+    required: true,
+    synonyms: ['rate', 'daily rate', 'rate per day', 'wage', 'daily wage', 'salary', 'pay', 'rate (rwf)', 'price'],
+  },
+  {
+    key: 'payEveryDays',
+    label: 'Paid (days)',
+    type: 'number',
+    required: true,
+    min: 1,
+    defaultValue: '1',
+    synonyms: ['paid', 'paid days', 'paid every', 'pay every', 'days paid', 'payment days', 'days', 'paid (days)'],
+    hint: 'Days of work each payment covers (1 when the file has no such column)',
+  },
+];
+
+// A programme (schedule) made outside: one row per activity
+export const TIMELINE_IMPORT_FIELDS: ImportField[] = [
+  {
+    key: 'activityId',
+    label: 'ID',
+    type: 'text',
+    synonyms: ['id', 'no', 'no.', '#', 's/n', 'sn', 'ref', 'activity id', 'task id', 'wbs'],
+  },
+  {
+    key: 'workstream',
+    label: 'Workstream',
+    type: 'text',
+    required: true,
+    synonyms: ['workstream', 'work stream', 'phase', 'work package', 'package', 'section', 'discipline', 'trade', 'group'],
+    hint: 'Becomes the stage; its activities become sub-stages',
+  },
+  {
+    key: 'activity',
+    label: 'Activity',
+    type: 'text',
+    required: true,
+    synonyms: ['activity', 'activities', 'task', 'task name', 'activity description', 'description', 'work'],
+  },
+  {
+    key: 'startDate',
+    label: 'Start',
+    type: 'date',
+    required: true,
+    synonyms: ['start', 'start date', 'begin', 'from', 'starts'],
+  },
+  {
+    key: 'endDate',
+    label: 'Finish',
+    type: 'date',
+    required: true,
+    synonyms: ['finish', 'finish date', 'end', 'end date', 'to', 'completion', 'finishes'],
+  },
+  {
+    key: 'predecessors',
+    label: 'Predecessor',
+    type: 'text',
+    synonyms: ['predecessor', 'predecessors', 'depends on', 'dependency', 'dependencies', 'pred'],
+  },
+  {
+    key: 'owner',
+    label: 'Owner',
+    type: 'text',
+    synonyms: ['owner', 'responsible', 'responsible person', 'assigned to', 'resource', 'resources'],
   },
 ];

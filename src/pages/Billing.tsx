@@ -253,9 +253,7 @@ export function Billing() {
             Current Subscription
           </CardTitle>
           <CardDescription>
-            {activeProfile?.type === 'organization'
-              ? `Subscription for ${activeProfile.name}`
-              : 'Your personal subscription'}
+            {activeProfile ? `Subscription for ${activeProfile.name}` : 'Register your company to subscribe'}
           </CardDescription>
         </CardHeader>
         <CardContent>

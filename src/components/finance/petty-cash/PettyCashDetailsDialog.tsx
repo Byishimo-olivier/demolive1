@@ -52,6 +52,9 @@ export function PettyCashDetailsDialog({ record, onOpenChange, canApprove, onCha
     ['Amount', `${isPayment ? '−' : '+'}${formatAmount(record.amount)}`],
     ...(isPayment && record.category ? ([['Category', capitalize(record.category)]] as [string, string][]) : []),
     ['Responsible person', record.responsiblePerson?.name ?? '—'],
+    ...(record.sentBy ? ([['Sent by', record.sentBy.name]] as [string, string][]) : []),
+    ...(record.receivedBy ? ([['Received by', record.receivedBy.name]] as [string, string][]) : []),
+    ...(record.phone ? ([['Phone number', record.phone]] as [string, string][]) : []),
     ...(record.payee ? ([['Paid to', record.payee]] as [string, string][]) : []),
     ...(record.receiptNumber ? ([['Receipt no.', record.receiptNumber]] as [string, string][]) : []),
   ];

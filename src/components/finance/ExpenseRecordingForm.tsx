@@ -8,7 +8,7 @@ import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { financeApi, type Expense, type CreateExpenseRequest, type ExpenseSourceKind } from '../../lib/finance-api';
+import { financeApi, type Expense, type CreateExpenseRequest, type ExpenseDetails, type ExpenseSourceKind } from '../../lib/finance-api';
 import { approvalsApi } from '@/lib/approvals-api';
 import { ExpenseCategory } from '../../types';
 import { Plus, Edit, Trash2, FileText, Paperclip, CheckCircle, XCircle, Loader2, Eye, Lock } from 'lucide-react';
@@ -20,6 +20,13 @@ import { getErrorMessage } from '@/utils/error-handler';
 import { cn } from '@/lib/utils';
 import { ExpenseDetailsModal } from './ExpenseDetailsModal';
 import { EXPENSE_SOURCES, EXPENSE_SOURCE_STYLES, expenseSourceKind, expenseSourceLabel } from './expense-source';
+import {
+  CATEGORY_LABELS,
+  EXPENSE_CATEGORY_DETAILS,
+  describeFromDetails,
+  detailsForCategory,
+  detailsSummary,
+} from './expense-details';
 
 interface Props {
   projectId: string;
@@ -64,6 +71,8 @@ export function ExpenseRecordingForm({ projectId, expenses, onSuccess }: Props) 
   const [rejecting, setRejecting] = useState<Expense | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [formData, setFormData] = useState<CreateExpenseRequest>(emptyForm(projectId));
+  // What was paid for, by category (worker, machine, material, fuel…)
+  const [details, setDetails] = useState<ExpenseDetails>({});
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | ExpenseSourceKind>('all');
@@ -97,6 +106,7 @@ export function ExpenseRecordingForm({ projectId, expenses, onSuccess }: Props) 
   const openCreate = () => {
     setEditingExpense(null);
     setFormData(emptyForm(projectId));
+    setDetails({});
     setSelectedFile(null);
     setFormOpen(true);
   };
@@ -110,6 +120,7 @@ export function ExpenseRecordingForm({ projectId, expenses, onSuccess }: Props) 
       amount: expense.amount,
       description: expense.description,
     });
+    setDetails(expense.details ?? {});
     setSelectedFile(null);
     setFormOpen(true);
   };
@@ -118,6 +129,19 @@ export function ExpenseRecordingForm({ projectId, expenses, onSuccess }: Props) 
     setFormOpen(false);
     setEditingExpense(null);
     setSelectedFile(null);
+  };
+
+  const categoryConfig = EXPENSE_CATEGORY_DETAILS[formData.category];
+
+  // Change one detail; when both quantity and rate are known, the amount follows them
+  const setDetail = (key: keyof ExpenseDetails, raw: string) => {
+    const field = categoryConfig?.fields.find((f) => f.key === key);
+    const value = field?.type === 'number' ? (raw === '' ? undefined : Number(raw)) : raw;
+    const next = { ...details, [key]: value };
+    setDetails(next);
+    if ((key === 'quantity' || key === 'rate') && Number(next.quantity) > 0 && Number(next.rate) > 0) {
+      setFormData((prev) => ({ ...prev, amount: Math.round(Number(next.quantity) * Number(next.rate) * 100) / 100 }));
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -132,10 +156,16 @@ export function ExpenseRecordingForm({ projectId, expenses, onSuccess }: Props) 
       return;
     }
 
+    // Only the fields of the chosen category; a blank description is made from them
+    const categoryDetails = detailsForCategory(formData.category, details);
+    const description = formData.description.trim() || describeFromDetails(formData.category, categoryDetails);
+
     setIsSubmitting(true);
     try {
       const data: CreateExpenseRequest = {
         ...formData,
+        description,
+        details: categoryDetails,
         date: new Date(`${formData.date}T00:00:00.000Z`).toISOString(),
         ...(selectedFile ? { document: selectedFile } : {}),
       };
@@ -276,6 +306,9 @@ export function ExpenseRecordingForm({ projectId, expenses, onSuccess }: Props) 
                     </TableCell>
                     <TableCell className="min-w-[200px]">
                       <p className="font-medium text-gray-900">{expense.description}</p>
+                      {expense.details && (
+                        <p className="mt-0.5 text-xs text-gray-500">{detailsSummary(expense.details)}</p>
+                      )}
                       {expense.documents?.length > 0 && (
                         <p className="mt-0.5 flex items-center gap-1 text-xs text-gray-500">
                           <Paperclip className="h-3 w-3" />
@@ -367,21 +400,62 @@ export function ExpenseRecordingForm({ projectId, expenses, onSuccess }: Props) 
                   <SelectContent>
                     {Object.values(ExpenseCategory).map((category) => (
                       <SelectItem key={category} value={category}>
-                        {capitalize(category)}
+                        {CATEGORY_LABELS[category] ?? capitalize(category)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
             </div>
+            {/* The fields of the chosen category; quantity × rate gives the amount */}
+            {categoryConfig && (
+              <div className="grid grid-cols-1 gap-3 rounded-lg border border-gray-200 bg-gray-50/60 p-3 sm:grid-cols-2">
+                {categoryConfig.fields.map((field) => (
+                  <div key={field.key} className="space-y-1.5">
+                    <Label htmlFor={`expense-${field.key}`}>{field.label}</Label>
+                    {field.type === 'select' ? (
+                      <Select
+                        value={String(details[field.key] ?? '')}
+                        onValueChange={(value) => setDetail(field.key, value)}
+                      >
+                        <SelectTrigger id={`expense-${field.key}`} className="bg-white">
+                          <SelectValue placeholder="Choose" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {field.options?.map((option) => (
+                            <SelectItem key={option} value={option}>
+                              {option}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id={`expense-${field.key}`}
+                        type={field.type}
+                        min={field.type === 'number' ? 0 : undefined}
+                        step={field.type === 'number' ? 'any' : undefined}
+                        value={details[field.key] ?? ''}
+                        placeholder={field.placeholder ?? (field.type === 'number' ? '0' : undefined)}
+                        onChange={(e) => setDetail(field.key, e.target.value)}
+                        className="bg-white"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="space-y-1.5">
-              <Label htmlFor="expense-description">Description</Label>
+              <Label htmlFor="expense-description">
+                Description{categoryConfig ? <span className="font-normal text-gray-500"> (optional)</span> : null}
+              </Label>
               <Textarea
                 id="expense-description"
                 rows={2}
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                required
+                placeholder={categoryConfig ? 'Left empty, it is made from the details above' : undefined}
+                required={!categoryConfig}
               />
             </div>
             <div className="space-y-1.5">

@@ -19,6 +19,14 @@ export default {
       },
     },
     extend: {
+      // Spatial elevation: soft, layered, slightly warm shadows (0 = resting, 3 = floating highest)
+      boxShadow: {
+        'elev-0': '0 1px 0 rgba(28, 20, 12, 0.03)',
+        'elev-1': '0 1px 2px rgba(28, 20, 12, 0.04), 0 4px 12px -4px rgba(28, 20, 12, 0.08)',
+        'elev-2': '0 2px 6px rgba(28, 20, 12, 0.05), 0 12px 32px -10px rgba(28, 20, 12, 0.16)',
+        'elev-3': '0 4px 10px rgba(28, 20, 12, 0.08), 0 28px 64px -16px rgba(28, 20, 12, 0.32)',
+        'glow-orange': '0 6px 20px -6px rgba(249, 115, 22, 0.6)',
+      },
       fontFamily: {
         heading: ['Space Grotesk', 'sans-serif'],
         body: ['Plus Jakarta Sans', 'sans-serif'],

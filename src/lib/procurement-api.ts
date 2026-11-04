@@ -15,6 +15,12 @@ export interface MaterialDetail {
 
 export type RequestType = 'Material' | 'Other';
 
+// A line as the request form sends it: other requests (services…) may leave out quantity and unit
+export type MaterialDetailInput = Omit<MaterialDetail, 'quantity' | 'unit'> & {
+  quantity?: number;
+  unit?: UnitOfMeasurement;
+};
+
 export interface MaterialRequest {
   _id: string;
   projectId: string;
@@ -54,7 +60,7 @@ export interface CreateMaterialRequestRequest {
   requesterName: string;
   department: Department;
   requestDate?: string;
-  materialDetails: MaterialDetail[];
+  materialDetails: MaterialDetailInput[];
   purpose: string;
   priorityLevel: PriorityLevel;
 }

@@ -953,6 +953,7 @@ export function BidSubmission() {
                                       type="number"
                                       placeholder="0"
                                       {...field}
+                                      value={field.value || ''}
                                       onChange={(e) =>
                                         field.onChange(
                                           parseFloat(e.target.value) || 0
@@ -975,6 +976,7 @@ export function BidSubmission() {
                                       type="number"
                                       placeholder="0.00"
                                       {...field}
+                                      value={field.value || ''}
                                       onChange={(e) =>
                                         field.onChange(
                                           parseFloat(e.target.value) || 0

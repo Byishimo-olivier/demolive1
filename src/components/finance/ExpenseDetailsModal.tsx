@@ -11,6 +11,7 @@ import { useCurrency } from '@/contexts/CurrencyContext';
 import { FileText } from 'lucide-react';
 import { getFileUrl } from '@/lib/utils';
 import { expenseSourceLabel } from './expense-source';
+import { detailRows } from './expense-details';
 
 interface ExpenseDetailsModalProps {
   expense: Expense | null;
@@ -64,6 +65,16 @@ export function ExpenseDetailsModal({
             </div>
           </div>
 
+          {detailRows(expense.category, expense.details).length > 0 && (
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-2 rounded-lg bg-gray-50 p-3 text-sm">
+              {detailRows(expense.category, expense.details).map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-gray-500">{label}</dt>
+                  <dd className="font-medium text-gray-900">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
           <div className="pt-4 border-t border-gray-100">
             <p className="text-sm font-medium text-gray-500 mb-2">Description</p>
             <p className="text-gray-900 whitespace-pre-wrap">{expense.description}</p>

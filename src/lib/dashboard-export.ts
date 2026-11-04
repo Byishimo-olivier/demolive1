@@ -56,7 +56,7 @@ const fileSafe = (s: string) => s.replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, 
 /** Load the dashboard data and arrange it as report sections (shared by Excel and PDF) */
 async function buildReport(currency: string, project?: ExportProject | null): Promise<DashboardReport> {
   const projectId = project?._id || project?.id;
-  const [summary, health, cashFlow, procurement, documents, performance, timeline, advanced, bidding, financials] =
+  const [summary, health, cashFlow, procurement, documents, performance, timeline, advanced, bidding, financials, profitLoss] =
     await Promise.all([
       settle(dashboardApi.getDashboardSummary()),
       settle(dashboardApi.getProjectsHealth()),
@@ -68,6 +68,7 @@ async function buildReport(currency: string, project?: ExportProject | null): Pr
       settle(dashboardApi.getAdvancedAnalytics()),
       settle(dashboardApi.getBiddingAnalytics()),
       projectId ? settle(projectApi.getProjectFinancials(projectId).then((r) => r.data)) : Promise.resolve(null),
+      settle(dashboardApi.getProfitLoss(projectId)),
     ]);
 
   if (!summary && !health && !financials) {
@@ -94,6 +95,43 @@ async function buildReport(currency: string, project?: ExportProject | null): Pr
   }
   if (summaryRows.length) {
     sections.push({ title: 'Summary', sheet: 'Summary', widths: [34, 20], tables: [{ rows: summaryRows }] });
+  }
+
+  // Income, expenses and profit / loss (the selected project, or all projects)
+  if (profitLoss) {
+    const tables: ReportSection['tables'] = [
+      {
+        rows: [
+          [`Income ${money}`, profitLoss.income.earned],
+          [`Received ${money}`, profitLoss.income.received],
+          [`Outstanding ${money}`, profitLoss.income.outstanding],
+          [`Expenses ${money}`, profitLoss.expenses.approved],
+          [`${profitLoss.profitLoss < 0 ? 'Loss' : 'Profit'} ${money}`, profitLoss.profitLoss],
+          ['Margin (% of income)', profitLoss.marginPercent],
+          [`Cash position ${money}`, profitLoss.cashPosition],
+          [`Expenses awaiting approval ${money}`, profitLoss.expenses.pending],
+          [`Invoices awaiting approval ${money}`, profitLoss.income.awaitingApproval],
+        ],
+      },
+    ];
+    if (profitLoss.trend.labels.length) {
+      tables.push({
+        head: ['Month', `Income ${money}`, `Expenses ${money}`, `Profit / loss ${money}`],
+        rows: profitLoss.trend.labels.map((label, i) => [
+          label,
+          profitLoss.trend.income[i],
+          profitLoss.trend.expenses[i],
+          profitLoss.trend.profitLoss[i],
+        ]),
+      });
+    }
+    if (!project && profitLoss.byProject.length > 1) {
+      tables.push({
+        head: ['Project', `Income ${money}`, `Received ${money}`, `Expenses ${money}`, `Profit / loss ${money}`],
+        rows: profitLoss.byProject.map((p) => [p.name, p.income, p.received, p.expenses, p.profitLoss]),
+      });
+    }
+    sections.push({ title: 'Profit & loss', sheet: 'Profit & loss', widths: [34, 18, 18, 18, 18], tables });
   }
 
   // Selected project
@@ -180,7 +218,7 @@ async function buildReport(currency: string, project?: ExportProject | null): Pr
     if (value !== undefined && value !== null && value !== '') indicators.push([label, value as Cell]);
   };
   if (procurement) {
-    add('Material requests', procurement.materialRequestCount);
+    add('Requests', procurement.materialRequestCount);
     add('Purchase orders', procurement.purchaseOrderCount);
     add('Supplier on-time delivery (%)', num(procurement.supplierPerformance?.onTimeDeliveryPercentage));
   }

@@ -218,9 +218,9 @@ export function Settings() {
                 </div>
 
                 <div className="grid gap-2">
-                  <Label>Account Type</Label>
+                  <Label>Company</Label>
                   <Input 
-                    value={user.isIndividual ? 'Individual' : 'Company'} 
+                    value={activeProfile?.name ?? 'No company yet'} 
                     disabled 
                     className="bg-muted" 
                   />

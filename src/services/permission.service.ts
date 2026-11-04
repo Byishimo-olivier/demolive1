@@ -1,30 +1,34 @@
 import { PermissionError, Resource, Action } from '../types/permissions';
+import { projectAccessStore } from '../lib/project-access-store';
+
+/** Someone invited to projects only: everything but running the company */
+export const projectOnlyAllows = (permission: string) =>
+  !permission.startsWith('company:') || permission === 'company:view-projects';
 
 export class PermissionService {
   private permissions: Set<string> = new Set();
-  private isPersonalProfile: boolean = false;
+  // On some of the company's projects only: project pages follow the project role (checked by the
+  // server); company management pages stay closed
+  private isProjectOnly: boolean = false;
 
   setPermissions(permissions: string[]): void {
     this.permissions = new Set(permissions);
   }
 
-  setProfileType(isPersonal: boolean): void {
-    this.isPersonalProfile = isPersonal;
+  setProjectOnly(projectOnly: boolean): void {
+    this.isProjectOnly = projectOnly;
   }
 
   hasPermission(permission: string): boolean {
-    if (this.isPersonalProfile) {
-      return true;
-    }
+    // The selected project's page access decides its pages and tabs
+    const decided = projectAccessStore.decides(permission);
+    if (decided !== null) return decided;
+    if (this.isProjectOnly) return projectOnlyAllows(permission);
     return this.permissions.has(permission);
   }
 
   validatePermission(permission: string): void {
-    if (this.isPersonalProfile) {
-      return;
-    }
-
-    if (!this.permissions.has(permission)) {
+    if (!this.hasPermission(permission)) {
       throw new PermissionError(Resource.ADMIN, Action.VIEW, `Missing permission: ${permission}`);
     }
   }
@@ -35,7 +39,7 @@ export class PermissionService {
 
   clearPermissions(): void {
     this.permissions.clear();
-    this.isPersonalProfile = false;
+    this.isProjectOnly = false;
   }
 }
 

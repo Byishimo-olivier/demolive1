@@ -33,6 +33,10 @@ export interface PettyCashRecord {
   payee?: string;
   receiptNumber?: string;
   responsiblePerson: { userId?: string; name: string };
+  // Top-ups: who sent the money, who received it, and the phone it went to
+  sentBy?: { userId?: string; name: string };
+  receivedBy?: { userId?: string; name: string };
+  phone?: string;
   documents: PettyCashReceipt[];
   status: PettyCashStatus;
   approval?: { reviewedByName?: string; reviewedAt?: string; comment?: string };
@@ -70,6 +74,11 @@ export interface PettyCashInput {
   receiptNumber?: string;
   responsiblePersonId?: string;
   responsiblePersonName?: string;
+  sentById?: string;
+  sentByName?: string;
+  receivedById?: string;
+  receivedByName?: string;
+  phone?: string;
 }
 
 interface ApiResponse<T> {

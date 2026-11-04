@@ -1,5 +1,6 @@
 import { api } from './axios';
 import { Permissions } from '../constants/permissions';
+import { rangeParams, type DateRange } from './date-range';
 
 export interface DashboardSummary {
   totalProjects: number;
@@ -83,6 +84,34 @@ export interface BiddingAnalytics {
   avgBidsPerTender: string;
 }
 
+// Income = invoices approved or paid; received = paid invoices; expenses = approved expenses
+export interface ProfitLoss {
+  projectId: string | null;
+  projectCount: number;
+  startDate: string | null;
+  endDate: string | null;
+  income: {
+    earned: number;
+    received: number;
+    outstanding: number;
+    awaitingApproval: number;
+    awaitingApprovalCount: number;
+  };
+  expenses: {
+    approved: number;
+    pending: number;
+    pendingCount: number;
+    byCategory: { category: string; amount: number }[];
+  };
+  // Income minus expenses
+  profitLoss: number;
+  marginPercent: number | null;
+  // Money received minus expenses
+  cashPosition: number;
+  byProject: { projectId: string; name: string; income: number; received: number; expenses: number; profitLoss: number }[];
+  trend: { labels: string[]; income: number[]; expenses: number[]; profitLoss: number[] };
+}
+
 class DashboardApi {
   async getDashboardSummary(): Promise<DashboardSummary> {
     const response = await api.get('/dashboard/summary', {
@@ -139,6 +168,15 @@ class DashboardApi {
     const response = await api.get('/dashboard/cash-flow', {
       requiresPermission: [Permissions.VIEW_PROJECT, Permissions.COMPANY_VIEW_PROJECTS], 
       params: { period } 
+    });
+    return response.data.data;
+  }
+
+  // One project, or every project the user can see when projectId is left out
+  async getProfitLoss(projectId?: string, range?: DateRange): Promise<ProfitLoss> {
+    const response = await api.get<{ data: ProfitLoss }>('/dashboard/profit-loss', {
+      requiresPermission: [Permissions.VIEW_PROJECT, Permissions.COMPANY_VIEW_PROJECTS],
+      params: { ...(projectId ? { projectId } : {}), ...rangeParams(range) },
     });
     return response.data.data;
   }

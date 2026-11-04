@@ -38,6 +38,7 @@ import {
   Download,
   Share2,
   Loader2,
+  ShieldCheck,
 } from 'lucide-react';
 import { projectApi } from '../lib/project-api';
 import { procurementApi } from '../lib/procurement-api';
@@ -47,9 +48,14 @@ import { overallTimelineProgress, plannedDurationDays, stageProgress } from '../
 import { ApprovalBadge } from '../components/timeline/TimelineApproval';
 import { MdApprovalsButton } from '../components/approvals/MdApprovals';
 import { ProjectSummaryPanel } from '../components/projects/ProjectSummaryPanel';
+import { ProjectDashboard } from '@/components/dashboard/ProjectDashboard';
+import { ExportMenu } from '@/components/dashboard/ExportMenu';
+import { exportDashboard, type DashboardExportFormat } from '@/lib/dashboard-export';
 import { inventoryApi } from '../lib/inventory-api';
 import type { Project, ProjectInvite } from '../types';
 import { humanizeLabel, cn } from '@/lib/utils';
+import { projectAccessApi, type MemberAccess, type ProjectAccess } from '@/lib/project-access-api';
+import { MemberAccessDialog } from '@/components/projects/MemberAccessDialog';
 import { useCurrency } from '../contexts/CurrencyContext';
 import { Timeline } from './Timeline';
 import { Procurement } from './Procurement';
@@ -112,7 +118,8 @@ interface ProjectOverview {
 }
 
 export function ProjectDetails() {
-  const { formatAmount } = useCurrency();
+  const { formatAmount, currency } = useCurrency();
+  const [isExporting, setIsExporting] = useState(false);
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -121,6 +128,16 @@ export function ProjectDetails() {
   const [loading, setLoading] = useState(true);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const { setProject: projectContextSetProject } = useProject();
+  // Page access of the team (only filled for the owner / MD, who can change it)
+  const [accessInfo, setAccessInfo] = useState<ProjectAccess | null>(null);
+  const [editingAccess, setEditingAccess] = useState<MemberAccess | null>(null);
+  const loadAccess = async (id: string) => {
+    try {
+      setAccessInfo(await projectAccessApi.get(id));
+    } catch {
+      setAccessInfo(null);
+    }
+  };
   const [inviteOpen, setInviteOpen] = useState(false);
   const { activeProfile, can } = useAuth();
   const [pendingInvites, setPendingInvites] = useState<ProjectInvite[]>([]);
@@ -151,7 +168,7 @@ export function ProjectDetails() {
 
     const availableTabs = [baseTab];
     const tabPermissions = [
-      { tab: { value: 'team', label: 'Team', icon: Users }, permissions: [Permissions.MANAGE_PROJECT_TEAM, Permissions.VIEW_PROJECT] },
+      { tab: { value: 'team', label: 'Team', icon: Users }, permissions: [Permissions.MANAGE_PROJECT_TEAM, Permissions.VIEW_USER] },
       { tab: { value: 'timeline', label: 'Timeline', icon: Clock }, permissions: [Permissions.VIEW_TIMELINE, Permissions.CREATE_PROJECT_STAGE, Permissions.UPDATE_PROGRESS_TRACKING] },
       { tab: { value: 'procurement', label: 'Procurement', icon: Package }, permissions: [Permissions.VIEW_MATERIAL_REQUEST, Permissions.VIEW_PURCHASE_ORDER] },
       { tab: { value: 'finance', label: 'Finance', icon: DollarSign }, permissions: [Permissions.VIEW_BUDGET, Permissions.VIEW_EXPENSE, Permissions.VIEW_INVOICE, Permissions.VIEW_BOQ] },
@@ -179,6 +196,7 @@ export function ProjectDetails() {
       const response = await projectApi.getProject(projectId);
       setProject(response.data);
       projectContextSetProject(response.data);
+      loadAccess(projectId);
       await loadOverviewData(projectId);
       await loadPendingInvitations(projectId);
     } catch (error) {
@@ -568,12 +586,34 @@ export function ProjectDetails() {
                     </Card>
                   )}
 
-                  {/* Client, contract, contact, timeline, progress, expenses and profit & loss */}
+
+                  {/* Client, contract, total income, total expenses, profit / loss and timeline */}
                   <ProjectSummaryPanel
                     project={project}
-                    progress={overview?.timeline.overallProgress || 0}
                     timeline={{ startDate: overview?.timeline.startDate || null, endDate: overview?.timeline.endDate || null }}
                   />
+
+                  {/* This project's dashboard: headline figures and charts (the sidebar Dashboard is the whole company) */}
+                  <section className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <h2 className="font-heading text-lg font-semibold text-gray-900">Project dashboard</h2>
+                      <ExportMenu
+                        exporting={isExporting}
+                        onExport={async (fileFormat: DashboardExportFormat) => {
+                          setIsExporting(true);
+                          try {
+                            const fileName = await exportDashboard(currency, project, fileFormat);
+                            toast.success(`Downloaded ${fileName}`);
+                          } catch (error) {
+                            toast.error(getErrorMessage(error, 'Could not export the dashboard'));
+                          } finally {
+                            setIsExporting(false);
+                          }
+                        }}
+                      />
+                    </div>
+                    <ProjectDashboard project={project} />
+                  </section>
 
                   {/* Key Metrics */}
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -728,7 +768,7 @@ export function ProjectDetails() {
                             <Can permission={Permissions.CREATE_MATERIAL_REQUEST}>
                               <QuickActionButton
                                 icon={Package}
-                                label="Add Material Request"
+                                label="Add Request"
                                 onClick={() => handleTabChange('procurement')}
                               />
                             </Can>
@@ -777,7 +817,7 @@ export function ProjectDetails() {
                               <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
                                 <div className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 flex-shrink-0" />
                                 <div>
-                                  <p className="text-sm font-medium text-gray-900">Material Requests Active</p>
+                                  <p className="text-sm font-medium text-gray-900">Requests Active</p>
                                   <p className="text-xs text-gray-500">{overview.procurement.materialRequests} active requests</p>
                                 </div>
                               </div>
@@ -850,15 +890,45 @@ export function ProjectDetails() {
                                   <p className="font-medium text-gray-900 truncate text-sm">{member.user.fullName}</p>
                                   <p className="text-xs text-gray-500 truncate">{member.user.email}</p>
                                 </div>
-                                <Badge variant="secondary" className="flex-shrink-0 bg-gray-200 text-gray-700 text-xs">
-                                  {humanizeLabel(member.role)}
-                                </Badge>
+                                <div className="flex flex-shrink-0 flex-col items-end gap-1">
+                                  <Badge variant="secondary" className="bg-gray-200 text-gray-700 text-xs">
+                                    {humanizeLabel(member.role)}
+                                  </Badge>
+                                  {(() => {
+                                    const access = accessInfo?.members?.find((m) => m.userId === member.user._id);
+                                    if (!accessInfo?.canManage || !access) return null;
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingAccess(access)}
+                                        className={cn(
+                                          'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-white',
+                                          access.customised.length ? 'text-amber-700' : 'text-gray-600'
+                                        )}
+                                        title="Choose the pages this member can open"
+                                      >
+                                        <ShieldCheck className="h-3 w-3" />
+                                        {access.customised.length ? 'Custom access' : 'Access'}
+                                      </button>
+                                    );
+                                  })()}
+                                </div>
                               </motion.div>
                             ))}
                           </div>
                         )}
                       </CardContent>
                     </Card>
+
+                    {accessInfo?.canManage && (
+                      <MemberAccessDialog
+                        projectId={projectId!}
+                        areas={accessInfo.areas}
+                        member={editingAccess}
+                        onOpenChange={(open) => !open && setEditingAccess(null)}
+                        onSaved={() => projectId && loadAccess(projectId)}
+                      />
+                    )}
 
                     {/* Pending Invitations */}
                     <Card className="border-gray-200">
@@ -930,7 +1000,7 @@ export function ProjectDetails() {
 
               {getAvailableTabs().some(tab => tab.value === 'inventory') && (
                 <TabsContent value="inventory">
-                  <Inventory />
+                  <Inventory embedded />
                 </TabsContent>
               )}
 

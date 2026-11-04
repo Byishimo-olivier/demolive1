@@ -1,7 +1,7 @@
 import { Fragment, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowDown, ArrowUp, CalendarRange, ChevronDown, ChevronRight, ListPlus, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, CalendarRange, ChevronDown, ChevronRight, ListPlus, Plus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { PlannedSubStage, StageTemplate } from '@/lib/timeline-api';
 import { plannedDurationDays, splitDateRange } from './timeline-utils';
@@ -11,7 +11,8 @@ export interface DraftItem {
   name: string;
   startDate: string; // yyyy-mm-dd
   endDate: string;
-  budget: string;
+  // Progress in % as typed
+  progress: string;
 }
 
 export interface DraftSubStage extends DraftItem {
@@ -26,7 +27,7 @@ const emptyItem = (startDate: string, endDate: string, name = ''): DraftItem => 
   name,
   startDate,
   endDate,
-  budget: '',
+  progress: '',
 });
 
 /** Standard sub-stages (and tasks) for a stage, spread across its dates */
@@ -55,21 +56,17 @@ export function respreadDraft(draft: DraftSubStage[], start: string, end: string
   });
 }
 
-// A sub-stage with tasks takes its dates and budget from them (as the backend does)
+// A sub-stage with tasks takes its dates and progress from them (as the backend does)
 export function effectiveSubStage(s: DraftSubStage) {
-  if (s.tasks.length === 0) return { startDate: s.startDate, endDate: s.endDate, budget: Number(s.budget) || 0 };
+  if (s.tasks.length === 0) return { startDate: s.startDate, endDate: s.endDate, progress: Number(s.progress) || 0 };
   const starts = s.tasks.map((t) => t.startDate).filter(Boolean).sort();
   const ends = s.tasks.map((t) => t.endDate).filter(Boolean).sort();
   return {
     startDate: starts[0] || s.startDate,
     endDate: ends[ends.length - 1] || s.endDate,
-    budget: s.tasks.reduce((sum, t) => sum + (Number(t.budget) || 0), 0),
+    progress: Math.round(s.tasks.reduce((sum, t) => sum + (Number(t.progress) || 0), 0) / s.tasks.length),
   };
 }
-
-/** Total planned budget of the draft */
-export const draftBudgetTotal = (draft: DraftSubStage[]) =>
-  draft.reduce((sum, s) => sum + effectiveSubStage(s).budget, 0);
 
 /** First problem in the draft, or null when it can be saved */
 export function validateDraft(draft: DraftSubStage[]): string | null {
@@ -81,8 +78,9 @@ export function validateDraft(draft: DraftSubStage[]): string | null {
       if (!item.name.trim()) return `${item.label} needs a name`;
       if (!item.startDate || !item.endDate) return `${item.label} needs start and end dates`;
       if (item.endDate < item.startDate) return `${item.label}: end date is before the start date`;
-      if (item.budget.trim() !== '' && (isNaN(Number(item.budget)) || Number(item.budget) < 0)) {
-        return `${item.label}: budget must be a positive number`;
+      const progress = Number(item.progress);
+      if (item.progress.trim() !== '' && (isNaN(progress) || progress < 0 || progress > 100)) {
+        return `${item.label}: progress must be between 0 and 100`;
       }
     }
   }
@@ -90,7 +88,7 @@ export function validateDraft(draft: DraftSubStage[]): string | null {
 }
 
 const toIso = (date: string) => new Date(date).toISOString();
-const toBudget = (budget: string) => (budget.trim() === '' ? undefined : Number(budget));
+const toProgress = (progress: string) => (progress.trim() === '' ? undefined : Number(progress));
 
 /** Payload for the create-stage API */
 export function draftToPayload(draft: DraftSubStage[]): PlannedSubStage[] {
@@ -100,12 +98,12 @@ export function draftToPayload(draft: DraftSubStage[]): PlannedSubStage[] {
       name: s.name.trim(),
       startDate: toIso(effective.startDate),
       endDate: toIso(effective.endDate),
-      budget: s.tasks.length ? undefined : toBudget(s.budget),
+      progressPercentage: s.tasks.length ? undefined : toProgress(s.progress),
       tasks: s.tasks.map((t) => ({
         name: t.name.trim(),
         startDate: toIso(t.startDate),
         endDate: toIso(t.endDate),
-        budget: toBudget(t.budget),
+        progressPercentage: toProgress(t.progress),
       })),
     };
   });
@@ -125,15 +123,11 @@ interface SubStagePlannerProps {
   stageWbs?: string;
   stageStart: string;
   stageEnd: string;
-  onReset: () => void;
-  formatAmount: (amount: number) => string;
-  // Planned budget still free in the project (Infinity when no project budget is set)
-  availableBudget?: number;
 }
 
 /**
  * Editable list of a new stage's sub-stages and their tasks: rename, set dates and
- * budget, reorder, add and remove before the stage is saved.
+ * progress, reorder, add and remove before the stage is saved.
  */
 export function SubStagePlanner({
   value,
@@ -141,9 +135,6 @@ export function SubStagePlanner({
   stageWbs,
   stageStart,
   stageEnd,
-  onReset,
-  formatAmount,
-  availableBudget = Infinity,
 }: SubStagePlannerProps) {
   const [open, setOpen] = useState<Set<string>>(new Set());
 
@@ -172,8 +163,6 @@ export function SubStagePlanner({
     setOpen((prev) => new Set(prev).add(sub.key));
   };
 
-  const total = draftBudgetTotal(value);
-  const overAvailable = total > availableBudget;
   const taskCount = value.reduce((n, s) => n + s.tasks.length, 0);
 
   return (
@@ -181,30 +170,19 @@ export function SubStagePlanner({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-gray-600">
           {value.length} sub-stage{value.length === 1 ? '' : 's'}
-          {taskCount ? `, ${taskCount} tasks` : ''} ·{' '}
-          <span className={cn(overAvailable && 'font-medium text-red-700')}>Planned budget {formatAmount(total)}</span>
-          {Number.isFinite(availableBudget) && (
-            <span className={cn(overAvailable ? 'font-medium text-red-700' : 'text-gray-500')}>
-              {' '}
-              of {formatAmount(availableBudget)} available
-            </span>
-          )}
+          {taskCount ? `, ${taskCount} tasks` : ''}
         </p>
         <div className="flex flex-wrap gap-1">
           <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => onChange(respreadDraft(value, stageStart, stageEnd))}>
             <CalendarRange className="h-3.5 w-3.5 mr-1" />
             Spread dates evenly
           </Button>
-          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={onReset}>
-            <RotateCcw className="h-3.5 w-3.5 mr-1" />
-            Reset to standard list
-          </Button>
         </div>
       </div>
 
       <div className="rounded-lg border border-gray-200 divide-y divide-gray-100 max-h-[420px] overflow-y-auto">
         {value.length === 0 && (
-          <p className="p-4 text-sm text-gray-500">No sub-stages. Add one below, or reset to the standard list.</p>
+          <p className="p-4 text-sm text-gray-500">No sub-stages yet. Add one below.</p>
         )}
         {value.map((sub, i) => {
           const isOpen = open.has(sub.key);
@@ -216,7 +194,7 @@ export function SubStagePlanner({
             <Fragment key={sub.key}>
               <ItemRow
                 wbs={wbs}
-                item={hasTasks ? { ...sub, ...effective, budget: String(effective.budget || '') } : sub}
+                item={hasTasks ? { ...sub, ...effective, progress: String(effective.progress) } : sub}
                 derived={hasTasks}
                 namePlaceholder="Sub-stage name"
                 isFirst={i === 0}
@@ -281,7 +259,7 @@ export function SubStagePlanner({
 interface ItemRowProps {
   wbs: string;
   item: DraftItem;
-  // Dates and budget come from the tasks
+  // Dates and progress come from the tasks
   derived?: boolean;
   compact?: boolean;
   namePlaceholder: string;
@@ -329,17 +307,21 @@ function ItemRow({ wbs, item, derived, compact, namePlaceholder, isFirst, isLast
             title={derived ? 'Calculated from the tasks' : 'End date'}
           />
           <span className="text-xs text-gray-500 w-10 text-right" title="Duration">{duration}d</span>
-          <Input
-            type="number"
-            min={0}
-            step="any"
-            value={item.budget}
-            onChange={(e) => onChange({ budget: e.target.value })}
-            disabled={derived}
-            placeholder="Budget"
-            className="h-8 w-28 text-xs"
-            title={derived ? 'Total of the tasks' : 'Budget'}
-          />
+          <div className="relative">
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step="any"
+              value={item.progress}
+              onChange={(e) => onChange({ progress: e.target.value })}
+              disabled={derived}
+              placeholder="Progress"
+              className="h-8 w-24 pr-6 text-xs"
+              title={derived ? 'Average of the tasks' : 'Actual progress (%)'}
+            />
+            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">%</span>
+          </div>
           <div className="flex items-center">
             <Button type="button" variant="ghost" size="icon" className="h-7 w-7" disabled={isFirst} onClick={() => onMove(-1)} title="Move up">
               <ArrowUp className="h-3.5 w-3.5" />

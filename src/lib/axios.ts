@@ -58,8 +58,8 @@ axiosInstance.interceptors.request.use(
       const activeProfileRaw = localStorage.getItem('infrasoko_active_profile');
       if (activeProfileRaw) {
         const activeProfile = JSON.parse(activeProfileRaw) as { type?: string; id?: string };
-        // According to backend docs, use "individual" for personal context
-        const activeContextHeader = activeProfile.type === 'personal' ? 'individual' : activeProfile.id;
+        // The company workspace (there is no personal one)
+        const activeContextHeader = activeProfile.type === 'organization' ? activeProfile.id : undefined;
         if (activeContextHeader) {
           (config.headers as Record<string, string>)['x-active-company-id'] = activeContextHeader;
         }
@@ -86,25 +86,25 @@ axiosInstance.interceptors.request.use(
     if (USE_PROXY) {
       // Store the original config
       const originalConfig = { ...config };
-      
+
       // Set the proxy URL
       config.url = PROXY_URL;
       config.method = 'POST';
-      
+
       // Handle different content types
       if (config.data instanceof FormData) {
         // For FormData, we need to add the original URL and method to the FormData
         const formData = config.data as FormData;
         formData.append('url', `${apiBaseURL}${originalConfig.url}`);
         formData.append('method', originalConfig.method || 'GET');
-        
+
         // Add headers as a JSON string
         const headersObj: Record<string, string> = {};
         Object.keys(originalConfig.headers || {}).forEach(key => {
           headersObj[key] = originalConfig.headers[key] as string;
         });
         formData.append('headers', JSON.stringify(headersObj));
-        
+
         // Set the content type to undefined to let the browser set it with the boundary
         config.headers['Content-Type'] = undefined;
       } else {
@@ -132,7 +132,7 @@ axiosInstance.interceptors.response.use(
     // Handle proxy response
     if (USE_PROXY) {
       const proxyResponse = response.data as ProxyResponse;
-      
+
       // Check if the proxy response indicates an error
       if (!proxyResponse.data.success) {
         const error = new AxiosError<ErrorResponse>(
@@ -186,10 +186,10 @@ axiosInstance.interceptors.response.use(
       localStorage.removeItem('infrasoko_active_project');
       localStorage.removeItem('infrasoko_user_companies');
       localStorage.removeItem('infrasoko_user_projects');
-      
+
       // Show token expired message
       toast.error(error.response?.data?.message || 'An error occurred');
-      
+
       // Redirect to login page
       // window.location.href = '/login';
       return Promise.reject(error);

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { Banknote, Briefcase, CheckCircle, Clock, Edit, Eye, Loader2, Paperclip, Plus, Trash2, Wallet } from 'lucide-react';
+import { Banknote, Briefcase, CheckCircle, Clock, Edit, Eye, FileText, Loader2, Paperclip, Plus, Trash2, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { SubcontractorFormDialog } from './subcontractors/SubcontractorFormDialog';
 import { SubcontractorPaymentFormDialog } from './subcontractors/SubcontractorPaymentFormDialog';
 import { SubcontractorPaymentDetailsDialog } from './subcontractors/SubcontractorPaymentDetailsDialog';
+import { SubcontractorBoqDialog } from './subcontractors/SubcontractorBoqDialog';
 import { PAYMENT_STATUS_STYLES, SUBCONTRACTOR_STATUS_STYLES } from './subcontractors/styles';
 
 interface SubcontractorsTabProps {
@@ -40,6 +41,7 @@ export function SubcontractorsTab({ projectId, onExpensesChanged }: Subcontracto
   const [subForm, setSubForm] = useState<{ open: boolean; subcontractor?: Subcontractor | null }>({ open: false });
   const [payForm, setPayForm] = useState<{ open: boolean; subcontractorId?: string; payment?: SubcontractorPayment | null }>({ open: false });
   const [viewing, setViewing] = useState<SubcontractorPayment | null>(null);
+  const [viewingBoq, setViewingBoq] = useState<Subcontractor | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
@@ -179,6 +181,16 @@ export function SubcontractorsTab({ projectId, onExpensesChanged }: Subcontracto
                   <TableCell className="min-w-[180px]">
                     <p className="font-medium text-gray-900">{sub.name}</p>
                     <p className="text-xs text-gray-500">{sub.trade}</p>
+                    {(sub.boqItems?.length ?? 0) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setViewingBoq(sub)}
+                        className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:underline"
+                      >
+                        <FileText className="h-3 w-3" />
+                        BoQ · {sub.boqItems!.length} {sub.boqItems!.length === 1 ? 'item' : 'items'}
+                      </button>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm text-gray-700">
                     {sub.contactPerson || '—'}
@@ -332,6 +344,8 @@ export function SubcontractorsTab({ projectId, onExpensesChanged }: Subcontracto
           </div>
         )}
       </div>
+
+      <SubcontractorBoqDialog subcontractor={viewingBoq} onOpenChange={(open) => !open && setViewingBoq(null)} />
 
       <SubcontractorFormDialog
         open={subForm.open}

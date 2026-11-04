@@ -27,7 +27,7 @@ export default function RegisterCompany() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refreshUserCompanies } = useAuth();
 
   if (!user) return null;
 
@@ -44,8 +44,10 @@ export default function RegisterCompany() {
     setLoading(true);
     setError("");
     try {
-      await companiesApi.createCompany(form);
-      navigate("/company");
+      const res = await companiesApi.createCompany(form);
+      // Straight into the new company's workspace
+      await refreshUserCompanies((res as { data?: { _id?: string } } | undefined)?.data?._id);
+      navigate("/dashboard");
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "Failed to register company";
       setError(errorMessage);
@@ -155,7 +157,7 @@ export default function RegisterCompany() {
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? <Spinner size="small" /> : "Register Company"}
           </Button>
-          
+
           <p className="text-sm text-muted-foreground text-center">
             You can add experience and certifications after registration in your company settings.
           </p>

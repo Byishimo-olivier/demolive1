@@ -430,7 +430,8 @@ export function MaterialUsageForm({ projectId, onSuccess }: Props) {
                               type="number"
                               min="0.01"
                               step="0.01"
-                              value={item.quantity}
+                              value={item.quantity || ''}
+                              placeholder="0"
                               onChange={(e) => updateUsageItem(index, 'quantity', parseFloat(e.target.value) || 0)}
                               required
                             />

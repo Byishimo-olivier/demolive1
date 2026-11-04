@@ -277,3 +277,59 @@ export const inventoryApi = {
     return response.data;
   }
 };
+
+// ---------------------------------------------------------------------------
+// The company as a whole: main store, named stores and every project site
+// ---------------------------------------------------------------------------
+
+export type CompanyPlaceKind = 'Main' | 'Store' | 'Project' | 'Site';
+
+export interface CompanyStockPlace {
+  key: string;
+  kind: CompanyPlaceKind;
+  label: string;
+  projectId?: string;
+  projectName?: string;
+  projectStatus?: string;
+  items: number;
+  value: number;
+  lowStock: number;
+  outOfStock: number;
+}
+
+export interface CompanyMaterial {
+  key: string;
+  materialCode?: string;
+  name: string;
+  unit: string;
+  category: string;
+  totalStock: number;
+  totalValue: number;
+  lowStock: boolean;
+  outOfStock: boolean;
+  places: { key: string; label: string; stock: number; unitPrice: number; low: boolean }[];
+}
+
+export interface CompanyInventoryOverview {
+  company: { id: string; name: string };
+  totals: {
+    stores: number;
+    sites: number;
+    materials: number;
+    value: number;
+    lowStock: number;
+    outOfStock: number;
+    pendingTransfers: number;
+  };
+  places: CompanyStockPlace[];
+  materials: CompanyMaterial[];
+  mainStore: { label: string; viaProjectId: string | null; canManage: boolean; visible: boolean };
+}
+
+export const companyInventoryApi = {
+  // The server decides what each person sees (company members vs people invited to one project)
+  getOverview: async () => {
+    const response = await api.get<ApiResponse<CompanyInventoryOverview>>('/finance/inventory/company/overview');
+    return response.data.data;
+  },
+};

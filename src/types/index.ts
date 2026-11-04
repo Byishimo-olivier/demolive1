@@ -180,6 +180,7 @@ export type Project = {
     user: User;
   }>;
   progress: number;
+  // The total of the budget categories in Finance → Budget (0 until one is planned)
   budget: number;
   // Client and contract
   clientName?: string;
@@ -205,7 +206,8 @@ export type ProjectFormData = {
   type: "Capital" | "Maintenance";
   team: string[];
   progress: number;
-  budget: number;
+  // Set in Finance → Budget (the project shows the total of its budget categories)
+  budget?: number;
   // Client and contract
   clientName?: string;
   contractAmount?: number;
@@ -314,6 +316,8 @@ export type RegisterFormData = {
 export type Company = {
   _id: string;
   name: string;
+  // Reached only through projects the user was invited to (not a company member)
+  projectAccessOnly?: boolean;
   registrationNumber: string;
   type: CompanyType;
   address: string;

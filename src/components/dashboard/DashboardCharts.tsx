@@ -649,7 +649,7 @@ export function DashboardCharts() {
     },
     series: [
       {
-        name: 'Material Requests',
+        name: 'Requests',
         data: [dashboardData.procurementAnalytics.materialRequestCount],
       },
       {
@@ -996,7 +996,7 @@ export function DashboardCharts() {
               <div className="text-lg font-bold text-purple-600">
                 {dashboardData.procurementAnalytics.materialRequestCount}
               </div>
-              <div className="text-xs text-purple-500">Material Requests</div>
+              <div className="text-xs text-purple-500">Requests</div>
             </div>
             <div className="text-center p-3 bg-green-50 rounded-xl">
               <div className="text-lg font-bold text-green-600">

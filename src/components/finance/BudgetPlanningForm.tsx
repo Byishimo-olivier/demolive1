@@ -51,7 +51,11 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
     try {
       if (editingBudget) {
         await financeApi.updateBudget(editingBudget._id, dataWithTotal);
-        toast.success('Budget updated successfully');
+        toast.success(
+          editingBudget.approvalStatus === 'approved'
+            ? 'Budget updated and sent for approval again'
+            : 'Budget updated successfully'
+        );
       } else {
         await financeApi.createBudget(dataWithTotal);
         toast.success('Budget created successfully');
@@ -145,13 +149,19 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
+              {editingBudget?.approvalStatus === 'approved' && (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  This budget is approved. Saving your changes sends it back for approval.
+                </p>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="fiscalYear">Fiscal Year</Label>
                   <Input
                     id="fiscalYear"
                     type="number"
-                    value={formData.fiscalYear}
+                    value={formData.fiscalYear || ''}
+                    placeholder={String(new Date().getFullYear())}
                     onChange={(e) => setFormData({ ...formData, fiscalYear: parseInt(e.target.value) || 0 })}
                     required
                   />
@@ -184,7 +194,8 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
                       id="materialsBudget"
                       type="number"
                       min="0"
-                      value={formData.materialsBudget}
+                      value={formData.materialsBudget || ''}
+                      placeholder="0"
                       onChange={(e) => setFormData({ ...formData, materialsBudget: parseFloat(e.target.value) || 0 })}
                       required
                     />
@@ -198,7 +209,8 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
                       id="laborBudget"
                                   type="number"
                       min="0"
-                      value={formData.laborBudget}
+                      value={formData.laborBudget || ''}
+                      placeholder="0"
                       onChange={(e) => setFormData({ ...formData, laborBudget: parseFloat(e.target.value) || 0 })}
                       required
                         />
@@ -214,7 +226,8 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
                       id="equipmentBudget"
                       type="number"
                       min="0"
-                      value={formData.equipmentBudget}
+                      value={formData.equipmentBudget || ''}
+                      placeholder="0"
                       onChange={(e) => setFormData({ ...formData, equipmentBudget: parseFloat(e.target.value) || 0 })}
                       required
                     />
@@ -228,7 +241,8 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
                       id="fuelBudget"
                             type="number"
                       min="0"
-                      value={formData.fuelBudget}
+                      value={formData.fuelBudget || ''}
+                      placeholder="0"
                       onChange={(e) => setFormData({ ...formData, fuelBudget: parseFloat(e.target.value) || 0 })}
                       required
                     />
@@ -243,7 +257,8 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
                     id="overheadsBudget"
                     type="number"
                     min="0"
-                    value={formData.overheadsBudget}
+                    value={formData.overheadsBudget || ''}
+                    placeholder="0"
                     onChange={(e) => setFormData({ ...formData, overheadsBudget: parseFloat(e.target.value) || 0 })}
                     required
                   />
@@ -256,7 +271,8 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
                   id="subcontractorsBudget"
                   type="number"
                   min="0"
-                  value={formData.subcontractorsBudget ?? 0}
+                  value={formData.subcontractorsBudget || ''}
+                  placeholder="0"
                   onChange={(e) => setFormData({ ...formData, subcontractorsBudget: parseFloat(e.target.value) || 0 })}
                 />
               </div>
@@ -302,15 +318,15 @@ export function BudgetPlanningForm({ projectId, budget, onSuccess }: Props) {
               <CardTitle>Current Budget (FY {budget.fiscalYear})</CardTitle>
               <div className="flex gap-2">
                 <Can permission={Permissions.UPDATE_BUDGET}>
-                  {budget.approvalStatus !== 'approved' && (
+                  {/* Approved budgets can be edited too; the change goes back for approval */}
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => handleEdit(budget)}
+                    title={budget.approvalStatus === 'approved' ? 'Edit (goes back for approval)' : 'Edit budget'}
                   >
                     <Edit className="h-4 w-4" />
                   </Button>
-                )}
                 {budget.approvalStatus === 'pending' && (
                   <>
                     <Button

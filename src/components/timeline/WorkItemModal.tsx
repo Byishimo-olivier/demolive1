@@ -10,16 +10,11 @@ import toast from 'react-hot-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import type { SubStageRequest, WorkItem } from '@/lib/timeline-api';
 import { getErrorMessage } from '@/utils/error-handler';
-import { useCurrency } from '@/contexts/CurrencyContext';
-import { cn } from '@/lib/utils';
 import {
   SUB_STAGE_STATUSES,
-  availableBudget,
-  budgetUsage,
   plannedDurationDays,
   toDateInput,
   usePlanLocked,
-  useProjectBudget,
   useProjectTeamOptions,
 } from './timeline-utils';
 import { ResponsiblePersonField, responsiblePersonPayload, responsiblePersonState } from './ResponsiblePersonField';
@@ -40,9 +35,6 @@ interface WorkItemModalProps {
   // A sub-stage with tasks takes its dates, budget, status and progress from them
   hasChildren?: boolean;
   suggestions?: string[];
-  // Creating the parent's first child: it takes over the parent's own budget and budget used
-  inheritedBudget?: number;
-  inheritedActualCost?: number;
   onSave: (payload: SubStageRequest) => Promise<{ message?: string } | undefined>;
 }
 
@@ -56,8 +48,6 @@ interface FormState {
   requestedByName: string;
   status: string;
   progressPercentage: number;
-  budget: string;
-  actualCost: string;
 }
 
 export function WorkItemModal({
@@ -71,14 +61,10 @@ export function WorkItemModal({
   item,
   hasChildren = false,
   suggestions = [],
-  inheritedBudget = 0,
-  inheritedActualCost = 0,
   onSave,
 }: WorkItemModalProps) {
   const { user } = useAuth();
-  const { formatAmount } = useCurrency();
-  const projectBudget = useProjectBudget();
-  // Locked timeline: only progress, status and budget used can change
+  // Locked timeline: only progress and status can change
   const planLocked = usePlanLocked();
   const teamOptions = useProjectTeamOptions(projectId, open);
   const [saving, setSaving] = useState(false);
@@ -101,17 +87,11 @@ export function WorkItemModal({
         requestedByName: item.requestedByName || '',
         status: item.status,
         progressPercentage: item.progressPercentage ?? 0,
-        budget: item.budget ? String(item.budget) : '',
-        actualCost: item.actualCost ? String(item.actualCost) : '',
       });
     } else {
-      setForm({
-        ...emptyForm(parentStart, parentEnd, user?.fullName),
-        budget: inheritedBudget ? String(inheritedBudget) : '',
-        actualCost: inheritedActualCost ? String(inheritedActualCost) : '',
-      });
+      setForm(emptyForm(parentStart, parentEnd, user?.fullName));
     }
-  }, [open, item, parentStart, parentEnd, user?.fullName, inheritedBudget, inheritedActualCost]);
+  }, [open, item, parentStart, parentEnd, user?.fullName]);
 
   const update = <K extends keyof FormState>(field: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -124,14 +104,6 @@ export function WorkItemModal({
     }));
 
   const duration = plannedDurationDays(form.startDate, form.endDate);
-  // Budget this item already holds (a first child takes over its parent's budget)
-  const currentBudget = item ? item.budget || 0 : inheritedBudget;
-  // Planned budget still free in the project for this item (its current budget included)
-  const available = availableBudget(projectBudget, currentBudget);
-  const budgetNumber = Number(form.budget) || 0;
-  // Only an increase beyond what is free is refused (same rule as the server)
-  const exceedsProjectBudget = budgetNumber > currentBudget && budgetNumber > available;
-  const usage = budgetUsage(budgetNumber, Number(form.actualCost) || 0);
   const outsideParent =
     !!parentStart &&
     !!parentEnd &&
@@ -156,20 +128,6 @@ export function WorkItemModal({
         return;
       }
     }
-    const budget = form.budget.trim() === '' ? 0 : Number(form.budget);
-    const actualCost = form.actualCost.trim() === '' ? 0 : Number(form.actualCost);
-    if (!hasChildren && (isNaN(budget) || budget < 0)) {
-      toast.error('Budget must be a positive number');
-      return;
-    }
-    if (!hasChildren && (isNaN(actualCost) || actualCost < 0)) {
-      toast.error('Budget used must be a positive number');
-      return;
-    }
-    if (!planLocked && !hasChildren && budget > currentBudget && budget > available) {
-      toast.error(`The budget is more than the ${formatAmount(available)} still available in the project budget`);
-      return;
-    }
 
     if (planLocked) {
       try {
@@ -177,7 +135,7 @@ export function WorkItemModal({
         const res = await onSave(
           (hasChildren
             ? {}
-            : { status: form.status, progressPercentage: Number(form.progressPercentage) || 0, actualCost }) as SubStageRequest
+            : { status: form.status, progressPercentage: Number(form.progressPercentage) || 0 }) as SubStageRequest
         );
         toast.success(res?.message || `${label} updated`);
         onOpenChange(false);
@@ -194,7 +152,7 @@ export function WorkItemModal({
       description: form.description.trim(),
       ...responsiblePersonPayload(form.responsible, form.responsibleOther),
       requestedByName: form.requestedByName.trim(),
-      // Dates, status, progress and budget of a sub-stage with tasks are calculated
+      // Dates, status and progress of a sub-stage with tasks are calculated
       ...(hasChildren
         ? {}
         : {
@@ -202,8 +160,6 @@ export function WorkItemModal({
             endDate: new Date(form.endDate).toISOString(),
             status: form.status,
             progressPercentage: Number(form.progressPercentage) || 0,
-            budget,
-            actualCost,
           }),
     } as SubStageRequest;
 
@@ -239,7 +195,7 @@ export function WorkItemModal({
           {planLocked && (
             <p className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
               <Lock className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
-              The timeline is locked. You can update status, progress and budget used; only the Managing Director can
+              The timeline is locked. You can update status and progress; only the Managing Director can
               change the plan.
             </p>
           )}
@@ -279,8 +235,7 @@ export function WorkItemModal({
 
           {hasChildren ? (
             <p className="text-sm text-blue-700 bg-blue-50 border border-blue-100 rounded-lg p-3">
-              Dates ({duration} days), budget, budget used, status and progress of this sub-stage are calculated
-              from its tasks.
+              Dates ({duration} days), status and progress of this sub-stage are calculated from its tasks.
             </p>
           ) : (
             <>
@@ -371,7 +326,8 @@ export function WorkItemModal({
                     type="number"
                     min={0}
                     max={100}
-                    value={form.progressPercentage}
+                    value={form.progressPercentage || ''}
+                    placeholder="0"
                     disabled={form.status === 'Completed'}
                     onChange={(e) =>
                       update('progressPercentage', Math.min(100, Math.max(0, Number(e.target.value) || 0)))
@@ -380,55 +336,7 @@ export function WorkItemModal({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="workItemBudget">Planned budget</Label>
-                  <Input
-                    id="workItemBudget"
-                    type="number"
-                    min={0}
-                    step="any"
-                    value={form.budget}
-                    onChange={(e) => update('budget', e.target.value)}
-                    disabled={planLocked}
-                    placeholder="0"
-                    className={cn(exceedsProjectBudget && 'border-red-400 focus-visible:ring-red-400')}
-                  />
-                  {Number.isFinite(available) && (
-                    <p className={cn('text-xs', exceedsProjectBudget ? 'text-red-700' : 'text-muted-foreground')}>
-                      {formatAmount(available)} available in the project budget
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="workItemActualCost">Budget used</Label>
-                  <Input
-                    id="workItemActualCost"
-                    type="number"
-                    min={0}
-                    step="any"
-                    value={form.actualCost}
-                    onChange={(e) => update('actualCost', e.target.value)}
-                    placeholder="0"
-                  />
-                  {usage.isOver ? (
-                    <p className="text-xs font-medium text-red-700">Over budget by {formatAmount(usage.over)}</p>
-                  ) : (
-                    budgetNumber > 0 && (
-                      <p className="text-xs text-muted-foreground">{formatAmount(usage.remaining)} of the budget left</p>
-                    )
-                  )}
-                </div>
-              </div>
             </>
-          )}
-
-          {!item && (inheritedBudget > 0 || inheritedActualCost > 0) && (
-            <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg p-3">
-              This is the first {label.toLowerCase()} of {parentLabel}, so it takes over its budget
-              {inheritedActualCost > 0 ? ' and budget used' : ''}. From now on {parentLabel} adds up its{' '}
-              {kind === 'task' ? 'tasks' : 'sub-stages'}.
-            </p>
           )}
 
           {item?.approval?.status === 'Approved' && (
@@ -465,7 +373,5 @@ function emptyForm(start?: string, end?: string, userName?: string): FormState {
     requestedByName: userName || '',
     status: 'Pending',
     progressPercentage: 0,
-    budget: '',
-    actualCost: '',
   };
 }

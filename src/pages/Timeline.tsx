@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScheduleTable } from '@/components/timeline/ScheduleTable';
+import { ScheduleImport } from '@/components/timeline/ScheduleImport';
 import { timelineApi, type ProjectStage, type ProgressTracking } from '../lib/timeline-api';
 import { useProject } from '../contexts/ProjectContext';
 import { 
@@ -19,7 +21,9 @@ import {
   Milestone,
   Layers,
   ShieldCheck,
-  Wallet
+  Wallet,
+  FileSpreadsheet,
+  Table2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ProjectStageModal } from '@/components/timeline/ProjectStageModal';
@@ -30,6 +34,7 @@ import {
   ProjectBudgetContext,
   TimelineLockContext,
   budgetUsage,
+  formatPeriodRange,
   overallTimelineProgress,
   scheduleState,
   useTimelineAccess,
@@ -64,6 +69,7 @@ export function Timeline() {
   // Locked timeline: the plan is read-only unless this user decides on it (the MD)
   const planLocked = access.lock?.status === 'Locked' && !access.lock.canDecide;
   const [approversOpen, setApproversOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => {
     if (currentProject?._id) {
@@ -131,6 +137,12 @@ export function Timeline() {
   // Without a project budget there is nothing to be over or under
   const projectUsage = budgetUsage(budgetInfo.projectBudget, hasProjectBudget ? budgetInfo.spent : 0);
   const overAllocated = Math.max(0, budgetInfo.allocated - budgetInfo.projectBudget);
+
+  // Planned activities (tasks, or sub-stages without tasks)
+  const activityCount = stages.reduce(
+    (n, s) => n + (s.subStages ?? []).reduce((m, sub) => m + Math.max(1, sub.tasks?.length ?? 0), 0),
+    0
+  );
 
   // Same overdue rule as the stage cards
   const delayedStages = stages.filter((s) => scheduleState(s.endDate, s.status).overdue).length;
@@ -215,6 +227,10 @@ export function Timeline() {
               </Button>
             </Can>
             {!planLocked && <Can permission={Permissions.CREATE_PROJECT_STAGE}>
+              <Button variant="outline" onClick={() => setImportOpen(true)} className="border-gray-200">
+                <FileSpreadsheet className="mr-2 h-4 w-4" />
+                Import programme
+              </Button>
               <Button
                 onClick={() => {
                   setSelectedStage(null);
@@ -396,6 +412,20 @@ export function Timeline() {
               )}
             </TabsTrigger>
             <TabsTrigger
+              value="schedule"
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                "data-[state=active]:bg-white data-[state=active]:text-gray-900 data-[state=active]:shadow-sm",
+                "data-[state=inactive]:text-gray-600 data-[state=inactive]:hover:text-gray-900"
+              )}
+            >
+              <Table2 className="h-4 w-4" />
+              Schedule
+              {activityCount > 0 && (
+                <Badge variant="secondary" className="ml-1 bg-gray-200">{activityCount}</Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger
               value="progress"
               className={cn(
                 "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
@@ -411,6 +441,11 @@ export function Timeline() {
             </TabsTrigger>
           </TabsList>
         </motion.div>
+
+        {/* Schedule: every activity in one table, like a programme sheet */}
+        <TabsContent value="schedule" className="mt-0">
+          <ScheduleTable stages={stages} projectName={currentProject.name} />
+        </TabsContent>
 
         {/* Stages Tab */}
         <TabsContent value="stages" className="mt-0">
@@ -433,9 +468,9 @@ export function Timeline() {
                   {!planLocked && <Can permission={Permissions.CREATE_PROJECT_STAGE}>
                     <Button
                       onClick={() => {
-                        setSelectedStage(null);
-                        setStageModalOpen(true);
-                      }}
+                  setSelectedStage(null);
+                  setStageModalOpen(true);
+                }}
                       className="bg-gray-900 hover:bg-gray-800 text-white"
                     >
                       <Plus className="mr-2 h-4 w-4" />
@@ -517,7 +552,10 @@ export function Timeline() {
                             <div>
                               <h4 className="font-semibold text-gray-900">Progress Report</h4>
                               <p className="text-sm text-gray-500">
-                                {format(new Date(progress.createdAt), 'MMM d, yyyy • h:mm a')}
+                                {formatPeriodRange(progress.reportingPeriod, new Date(progress.createdAt))}
+                              </p>
+                              <p className="text-xs text-gray-400">
+                                Created {format(new Date(progress.createdAt), 'MMM d, yyyy • h:mm a')}
                               </p>
                             </div>
                           </div>
@@ -604,6 +642,16 @@ export function Timeline() {
       </Tabs>
 
       {/* Modals */}
+      <ScheduleImport
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        projectId={currentProject._id}
+        existingCount={activityCount}
+        onSuccess={() => {
+          setActiveTab('schedule');
+          loadTimelineData({ silent: true });
+        }}
+      />
       <ProjectStageModal
         open={stageModalOpen}
         onOpenChange={setStageModalOpen}
@@ -640,6 +688,7 @@ export function Timeline() {
       />
 
       <ProgressTrackingModal
+        stages={stages}
         open={progressModalOpen}
         onOpenChange={setProgressModalOpen}
         progressTracking={selectedProgress}

@@ -1,26 +1,30 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useSyncExternalStore } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { authApi } from '../lib/auth-api';
 import { companiesApi } from '../lib/companies-api';
 import type { User, Company } from '../types';
 import { getCompanyPermissionsForRole } from '../constants/permissions';
-import { permissionService } from '../services/permission.service';
+import { permissionService, projectOnlyAllows } from '../services/permission.service';
+import { useProject } from './ProjectContext';
+import { projectAccessStore } from '../lib/project-access-store';
+import { projectAccessApi } from '../lib/project-access-api';
 import toast from 'react-hot-toast';
 
-type ProfileType = 'personal' | 'organization';
+// There is no personal workspace: everyone works in a company
+type ProfileType = 'organization';
 
 type ActiveProfile = {
   type: ProfileType;
   id: string;
   name: string;
-  data: User | Company;
+  data: Company;
 };
 
 type AuthContextType = {
   user: User | null;
   loading: boolean;
+  // null when the user has no company yet (they are sent to register one)
   activeProfile: ActiveProfile | null;
-  personalProfile: User | null;
   organizationProfiles: Company[];
   currentCompanyRole: string | null;
   signIn: (email: string, password: string, redirectTo?: string) => Promise<void>;
@@ -48,11 +52,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeProfile, setActiveProfile] = useState<ActiveProfile | null>(null);
-  const [personalProfile, setPersonalProfile] = useState<User | null>(null);
   const [organizationProfiles, setOrganizationProfiles] = useState<Company[]>([]);
   const [currentCompanyRole, setCurrentCompanyRole] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const { currentProject } = useProject();
+  // Re-render permission checks when the selected project's access arrives
+  const projectAccess = useSyncExternalStore(projectAccessStore.subscribe, projectAccessStore.get);
+
+  // What the user may do on the selected project (role + the pages the owner opened for them)
+  const accessProjectId = user ? currentProject?._id : undefined;
+  useEffect(() => {
+    if (!accessProjectId) {
+      projectAccessStore.clear();
+      return;
+    }
+    let cancelled = false;
+    projectAccessApi
+      .get(accessProjectId)
+      .then((access) => {
+        if (!cancelled) {
+          projectAccessStore.set({
+            projectId: accessProjectId,
+            actions: new Set(access.me.actions),
+            scope: new Set(access.me.scopeActions),
+          });
+        }
+      })
+      // Not on the project (or offline): fall back to the role checks
+      .catch(() => !cancelled && projectAccessStore.clear());
+    return () => {
+      cancelled = true;
+    };
+  }, [accessProjectId, activeProfile?.id]);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -67,7 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           const tokenPayload = JSON.parse(atob(token.split('.')[1]));
           const currentTime = Date.now() / 1000;
-          
+
           if (tokenPayload.exp && tokenPayload.exp < currentTime) {
             clearAuthData();
             toast.error('Your session has expired. Please log in again.');
@@ -90,7 +122,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const parsedUser = JSON.parse(userData);
         setUser(parsedUser);
-        setPersonalProfile(parsedUser);
 
         // Load companies and set active profile
         await loadUserCompaniesAndProfile(parsedUser);
@@ -118,10 +149,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('infrasoko_active_project');
     setUser(null);
     setActiveProfile(null);
-    setPersonalProfile(null);
     setOrganizationProfiles([]);
     setCurrentCompanyRole(null);
-    
+
     // Clear permission service
     permissionService.clearPermissions();
   };
@@ -131,54 +161,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const companies = await companiesApi.getUserCompanies();
       setOrganizationProfiles(companies.data);
 
-      const storedActiveProfile = localStorage.getItem('infrasoko_active_profile');
-      if (storedActiveProfile) {
-        const profile = JSON.parse(storedActiveProfile);
-        if (profile.type === 'organization') {
-          const org = companies.data.find((c: Company) => c._id === profile.id);
-          if (org) {
-            await setOrganizationActiveProfile(user, org);
-            return;
-          }
-        }
-      } else if (companies.data.length > 0) {
-        // Invited members should land in the company workspace so they can see
-        // the shared company data immediately. Their membership role still
-        // controls which actions are available there.
-        await setOrganizationActiveProfile(user, companies.data[0]);
+      // The company used last, else a company the user is a member of, else one reached through a project
+      let stored: { type?: string; id?: string } | null = null;
+      try {
+        stored = JSON.parse(localStorage.getItem('infrasoko_active_profile') || 'null');
+      } catch {
+        stored = null;
+      }
+      const list: Company[] = companies.data;
+      const org =
+        list.find((c) => c._id === stored?.id) ??
+        list.find((c) => !c.projectAccessOnly) ??
+        list[0];
+      if (org) {
+        await setOrganizationActiveProfile(user, org);
         return;
       }
-      
-      // Default to personal profile
-      await setPersonalActiveProfile(user);
+      clearActiveProfile();
     } catch (error) {
       console.error('Error loading companies:', error);
-      await setPersonalActiveProfile(user);
+      clearActiveProfile();
     }
   };
 
-  const setPersonalActiveProfile = async (user: User) => {
+  // No company yet: the app sends the user to register one
+  const clearActiveProfile = () => {
     setCurrentCompanyRole(null);
-    setActiveProfile({
-      type: 'personal',
-      id: user._id,
-      name: user.fullName,
-      data: user
-    });
-    localStorage.setItem('infrasoko_active_profile', JSON.stringify({
-      type: 'personal',
-      id: user._id
-    }));
-    
-    permissionService.setProfileType(true);
+    setActiveProfile(null);
+    localStorage.removeItem('infrasoko_active_profile');
+    permissionService.clearPermissions();
   };
 
   const setOrganizationActiveProfile = async (user: User, org: Company) => {
-    const userMember = org.members.find(member => {
+    const userMember = (org.members ?? []).find(member => {
       const userId = typeof member.userId === 'string' ? member.userId : member.userId._id;
       return userId === user._id;
     });
-    
+
     const role = userMember ? userMember.role : null;
     setCurrentCompanyRole(role);
     setActiveProfile({
@@ -191,9 +210,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       type: 'organization',
       id: org._id
     }));
-    
-    // Update permission service for organization profile
-    permissionService.setProfileType(false);
+
+    // Company members follow their company role; people on some projects only follow their project roles
+    permissionService.setProjectOnly(!role && !!org.projectAccessOnly);
     if (role) {
       const rolePermissions = getCompanyPermissionsForRole(role);
       permissionService.setPermissions(rolePermissions);
@@ -219,20 +238,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const switchToProfile = async (profileType: ProfileType, profileId: string) => {
     localStorage.removeItem('infrasoko_active_project');
-    
-    if (profileType === 'personal') {
-      await setPersonalActiveProfile(user!);
-    } else if (profileType === 'organization') {
-      const org = organizationProfiles.find(c => c._id === profileId);
-      if (org) {
-        await setOrganizationActiveProfile(user!, org);
-      }
-    }
-    
-    const profileName = profileType === 'personal' 
-      ? user!.fullName 
-      : organizationProfiles.find(c => c._id === profileId)?.name;
-    toast.success(`Switched to ${profileName} workspace`);
+
+    const org = organizationProfiles.find(c => c._id === profileId);
+    if (!org || profileType !== 'organization') return;
+    await setOrganizationActiveProfile(user!, org);
+    toast.success(`Switched to ${org.name}`);
     navigate('/dashboard');
   };
 
@@ -255,39 +265,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const can = (permission: string) => {
-    if (activeProfile?.type !== 'organization') return true;
-    
-    if (!currentCompanyRole) return false;
-    
+    // Pages and tabs of the selected project follow the user's access on it
+    if (projectAccess.actions && projectAccess.scope.has(permission)) {
+      return projectAccess.actions.has(permission);
+    }
+    if (!activeProfile) return false;
+    // On some of the company's projects only
+    if (!currentCompanyRole) return activeProfile.data.projectAccessOnly ? projectOnlyAllows(permission) : false;
+
     const rolePermissions = getCompanyPermissionsForRole(currentCompanyRole);
     // console.log("Role Permissions", rolePermissions)
-    
+
     return rolePermissions.includes(permission);
   };
 
   const handleUpdateUser = (updatedUser: User) => {
     setUser(updatedUser);
-    setPersonalProfile(updatedUser);
-    if (activeProfile?.type === 'personal') {
-      setActiveProfile({
-        ...activeProfile,
-        name: updatedUser.fullName,
-        data: updatedUser,
-      });
-    }
     localStorage.setItem('infrasoko_user', JSON.stringify(updatedUser));
   };
 
   return (
-    <AuthContext.Provider 
-      value={{ 
-        user, 
-        loading, 
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
         activeProfile,
-        personalProfile,
         organizationProfiles,
         currentCompanyRole,
-        signIn: handleSignIn, 
+        signIn: handleSignIn,
         signOut: handleSignOut,
         switchToProfile,
         refreshUserCompanies,

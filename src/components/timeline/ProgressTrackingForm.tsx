@@ -207,7 +207,8 @@ export function ProgressTrackingForm({ projectId, stages, onSuccess }: Props) {
                             type="number"
                         min="0"
                         max="100"
-                        value={stageProgress.progressPercentage}
+                        value={stageProgress.progressPercentage || ''}
+                        placeholder="0"
                         onChange={(e) => updateStageProgress(index, 'progressPercentage', parseInt(e.target.value) || 0)}
                       />
                     </div>

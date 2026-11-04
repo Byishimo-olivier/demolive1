@@ -108,31 +108,44 @@ export function MaterialRequestForm({ projectId, materialRequests, onSuccess, on
       purpose: '',
     priorityLevel: PriorityLevel.MEDIUM,
   });
+  // Other requests (services, labour, transport…) list items and services instead of materials
+  const isOtherRequest = formData.requestType === 'Other';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (formData.materialDetails.length === 0) {
-      toast.error('Please add at least one material');
+      toast.error(isOtherRequest ? 'Please add at least one item or service' : 'Please add at least one material');
+      return;
+    }
+    if (!isOtherRequest && formData.materialDetails.some((m) => !(Number(m.quantity) >= 1))) {
+      toast.error('Enter the quantity of each material');
       return;
     }
     
     setIsSubmitting(true);
     try {
+      // Other requests carry no quantity or unit (the server stores them as one unit)
+      const payload = isOtherRequest
+        ? {
+            ...formData,
+            materialDetails: formData.materialDetails.map(({ quantity: _quantity, unit: _unit, ...line }) => line),
+          }
+        : formData;
       if (editingRequest) {
-        const { projectId: _projectId, ...changes } = formData;
+        const { projectId: _projectId, ...changes } = payload;
         const res = (await procurementApi.updateMaterialRequest(editingRequest._id, changes)) as { message?: string };
-        toast.success(res?.message || 'Material request updated successfully');
+        toast.success(res?.message || 'Request updated successfully');
       } else {
-        await procurementApi.createMaterialRequest(formData);
-        toast.success('Material request created successfully');
+        await procurementApi.createMaterialRequest(payload);
+        toast.success('Request created successfully');
       }
       
       resetForm();
       onSuccess();
     } catch (error) {
       console.error('Error saving material request:', error);
-      toast.error(getErrorMessage(error, 'Failed to save material request'));
+      toast.error(getErrorMessage(error, 'Failed to save the request'));
     } finally {
       setIsSubmitting(false);
     }
@@ -152,16 +165,16 @@ export function MaterialRequestForm({ projectId, materialRequests, onSuccess, on
   };
 
   const handleDelete = async (requestId: string) => {
-    if (!confirm('Are you sure you want to delete this material request?')) return;
+    if (!confirm('Are you sure you want to delete this request?')) return;
     
     setIsDeleting(requestId);
     try {
       await procurementApi.deleteMaterialRequest(requestId);
-      toast.success('Material request deleted successfully');
+      toast.success('Request deleted successfully');
       onSuccess();
     } catch (error: unknown) {
       console.error('Error deleting material request:', error);
-      toast.error(getErrorMessage(error, 'Failed to delete material request'));
+      toast.error(getErrorMessage(error, 'Failed to delete the request'));
     } finally {
       setIsDeleting('');
     }
@@ -361,30 +374,45 @@ export function MaterialRequestForm({ projectId, materialRequests, onSuccess, on
 
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <Label>Material Details</Label>
+                  {/* Other requests are for items and services, not materials */}
+                  <Label>{isOtherRequest ? 'Service / item details' : 'Material Details'}</Label>
                   <Button type="button" variant="outline" size="sm" onClick={addMaterialDetail}>
                     <Plus className="mr-2 h-4 w-4" />
-                    Add Material
+                    {isOtherRequest ? 'Add item / service' : 'Add Material'}
                   </Button>
                 </div>
+                {isOtherRequest && formData.materialDetails.length > 0 && (
+                  <p className="text-xs text-gray-500">
+                    A service or item paid as a whole: give its estimated cost, no quantity or unit needed.
+                  </p>
+                )}
                 {formData.materialDetails.map((material, index) => (
                   <div key={index} className="border rounded-lg p-4 mb-2 bg-white">
-                    <div className="grid grid-cols-6 gap-4 items-end">
+                    <div
+                      className={cn(
+                        'grid gap-4 items-end',
+                        isOtherRequest ? 'grid-cols-[2fr_1fr_1fr_auto]' : 'grid-cols-6'
+                      )}
+                    >
                       <div>
-                        <Label>{formData.requestType === 'Other' ? 'Item / service' : 'Material Name'}</Label>
+                        <Label>{isOtherRequest ? 'Item / service' : 'Material Name'}</Label>
                         <Input
                           value={material.materialName}
                           onChange={e => updateMaterialDetail(index, 'materialName', e.target.value)}
                           required
                         />
                       </div>
+                      {/* Materials only: services have no quantity or unit */}
+                      {!isOtherRequest && (
+                        <>
                       <div>
                         <Label>Quantity</Label>
                         <Input
                           type="number"
                           min="1"
-                          value={material.quantity}
-                          onChange={e => updateMaterialDetail(index, 'quantity', parseInt(e.target.value) || 1)}
+                          value={material.quantity || ''}
+                          placeholder="0"
+                          onChange={e => updateMaterialDetail(index, 'quantity', parseInt(e.target.value) || 0)}
                           required
                         />
                       </div>
@@ -406,6 +434,8 @@ export function MaterialRequestForm({ projectId, materialRequests, onSuccess, on
                           </SelectContent>
                         </Select>
                       </div>
+                        </>
+                      )}
                       <div>
                         <Label>Required By Date</Label>
                         <Input
@@ -421,7 +451,8 @@ export function MaterialRequestForm({ projectId, materialRequests, onSuccess, on
                           type="number"
                           min="0"
                           step="0.01"
-                          value={material.estimatedCost}
+                          value={material.estimatedCost || ''}
+                          placeholder="0"
                           onChange={e => updateMaterialDetail(index, 'estimatedCost', parseFloat(e.target.value) || 0)}
                           required
                         />
@@ -442,7 +473,7 @@ export function MaterialRequestForm({ projectId, materialRequests, onSuccess, on
                       <Textarea
                         value={material.specifications || ''}
                         onChange={e => updateMaterialDetail(index, 'specifications', e.target.value)}
-                        placeholder="Add specifications for this material..."
+                        placeholder={isOtherRequest ? 'Describe this item or service...' : 'Add specifications for this material...'}
                       />
                     </div>
                   </div>

@@ -10,6 +10,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { subcontractorApi, type Subcontractor, type SubcontractorStatus } from '@/lib/subcontractor-api';
 import { getErrorMessage } from '@/utils/error-handler';
+import { useCurrency } from '@/contexts/CurrencyContext';
+import { SubcontractorBoqEditor, boqTotal, isBlankLine, linesFromItems, type BoqLine } from './SubcontractorBoqEditor';
 
 interface Props {
   open: boolean;
@@ -23,6 +25,7 @@ interface Props {
 const day = (value?: string) => (value ? format(new Date(value), 'yyyy-MM-dd') : '');
 
 export function SubcontractorFormDialog({ open, onOpenChange, projectId, subcontractor, onSaved }: Props) {
+  const { formatAmount } = useCurrency();
   const [name, setName] = useState('');
   const [trade, setTrade] = useState('');
   const [contactPerson, setContactPerson] = useState('');
@@ -34,6 +37,7 @@ export function SubcontractorFormDialog({ open, onOpenChange, projectId, subcont
   const [endDate, setEndDate] = useState('');
   const [status, setStatus] = useState<SubcontractorStatus>('Active');
   const [notes, setNotes] = useState('');
+  const [boqLines, setBoqLines] = useState<BoqLine[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -49,7 +53,12 @@ export function SubcontractorFormDialog({ open, onOpenChange, projectId, subcont
     setEndDate(day(subcontractor?.endDate));
     setStatus(subcontractor?.status ?? 'Active');
     setNotes(subcontractor?.notes ?? '');
+    setBoqLines(linesFromItems(subcontractor?.boqItems));
   }, [open, subcontractor]);
+
+  // Lines with something typed in them; with any, the contract amount is the BoQ total
+  const boqFilled = boqLines.filter((line) => !isBlankLine(line));
+  const hasBoq = boqFilled.length > 0;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,6 +66,10 @@ export function SubcontractorFormDialog({ open, onOpenChange, projectId, subcont
     if (!trade.trim()) return toast.error('Enter the scope of work');
     if (contractAmount !== '' && !(Number(contractAmount) >= 0)) return toast.error('Enter a valid contract amount');
     if (startDate && endDate && endDate < startDate) return toast.error('The end date must be on or after the start date');
+    const badLine = boqFilled.findIndex(
+      (line) => !line.description.trim() || line.quantity === '' || line.rate === '' || !(Number(line.quantity) >= 0) || !(Number(line.rate) >= 0)
+    );
+    if (badLine >= 0) return toast.error(`BoQ item ${badLine + 1}: enter the description, quantity and rate`);
 
     const data = {
       name: name.trim(),
@@ -65,7 +78,14 @@ export function SubcontractorFormDialog({ open, onOpenChange, projectId, subcont
       phone: phone.trim(),
       email: email.trim(),
       tin: tin.trim(),
-      contractAmount: contractAmount === '' ? 0 : Number(contractAmount),
+      contractAmount: hasBoq ? boqTotal(boqFilled) : contractAmount === '' ? 0 : Number(contractAmount),
+      boqItems: boqFilled.map((line) => ({
+        itemNo: line.itemNo.trim() || undefined,
+        description: line.description.trim(),
+        unit: line.unit.trim() || undefined,
+        quantity: Number(line.quantity),
+        rate: Number(line.rate),
+      })),
       startDate,
       endDate,
       notes: notes.trim(),
@@ -89,7 +109,7 @@ export function SubcontractorFormDialog({ open, onOpenChange, projectId, subcont
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{subcontractor ? `Edit ${subcontractor.name}` : 'Add subcontractor'}</DialogTitle>
         </DialogHeader>
@@ -124,17 +144,28 @@ export function SubcontractorFormDialog({ open, onOpenChange, projectId, subcont
             </div>
           </div>
 
+          <div className="rounded-lg border border-gray-200 p-4">
+            <SubcontractorBoqEditor lines={boqLines} onChange={setBoqLines} />
+          </div>
+
           <div className="space-y-1.5">
             <Label htmlFor="sc-amount">Contract amount (RWF)</Label>
-            <Input
-              id="sc-amount"
-              type="number"
-              min="0"
-              step="0.01"
-              value={contractAmount}
-              onChange={(e) => setContractAmount(e.target.value)}
-              placeholder="Leave empty if paid as the work goes"
-            />
+            {hasBoq ? (
+              <div className="flex h-10 items-center justify-between rounded-md border border-gray-200 bg-gray-50 px-3 text-sm">
+                <span className="text-gray-500">BoQ total</span>
+                <span className="font-semibold text-gray-900">{formatAmount(boqTotal(boqFilled))}</span>
+              </div>
+            ) : (
+              <Input
+                id="sc-amount"
+                type="number"
+                min="0"
+                step="0.01"
+                value={contractAmount}
+                onChange={(e) => setContractAmount(e.target.value)}
+                placeholder="Leave empty if paid as the work goes"
+              />
+            )}
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

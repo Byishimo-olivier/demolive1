@@ -133,7 +133,7 @@ export function PurchaseOrderForm({
               disabled={materialRequests.length === 0}
                       >
               <FileText className="mr-2 h-4 w-4" />
-              From Material Request
+              From Request
             </Button>
             <Button onClick={() => {
               setModalMode("manual");
@@ -167,7 +167,7 @@ export function PurchaseOrderForm({
                     )}
                     {order.materialRequestId && (
                       <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                        From Material Request
+                        From Request
                       </span>
                     )}
                   </div>

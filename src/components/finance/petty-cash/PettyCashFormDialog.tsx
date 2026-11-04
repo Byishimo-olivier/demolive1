@@ -26,6 +26,60 @@ interface Props {
 const OTHER = '__other__';
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+// A person chosen from the project's people, or typed when not in the list
+interface PersonChoice {
+  id: string; // a user ID, OTHER, or '' when not chosen
+  name: string;
+}
+
+const choiceOf = (person: { userId?: string; name: string } | undefined, people: { userId: string }[]): PersonChoice => {
+  if (!person) return { id: '', name: '' };
+  const known = person.userId && people.some((p) => p.userId === person.userId);
+  return { id: known ? person.userId! : OTHER, name: person.name };
+};
+
+// What the API takes for a person: the user's ID, or a typed name
+const personPayload = (choice: PersonChoice, idKey: string, nameKey: string) =>
+  choice.id === OTHER ? { [nameKey]: choice.name.trim(), [idKey]: '' } : { [idKey]: choice.id, [nameKey]: '' };
+
+function PersonPicker({
+  id,
+  label,
+  placeholder,
+  people,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  placeholder: string;
+  people: { userId: string; name: string }[];
+  value: PersonChoice;
+  onChange: (value: PersonChoice) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Select value={value.id} onValueChange={(next) => onChange({ id: next, name: next === OTHER ? value.name : '' })}>
+        <SelectTrigger id={id}>
+          <SelectValue placeholder={placeholder} />
+        </SelectTrigger>
+        <SelectContent>
+          {people.map((p) => (
+            <SelectItem key={p.userId} value={p.userId}>
+              {p.name}
+            </SelectItem>
+          ))}
+          <SelectItem value={OTHER}>Someone else</SelectItem>
+        </SelectContent>
+      </Select>
+      {value.id === OTHER && (
+        <Input value={value.name} onChange={(e) => onChange({ id: OTHER, name: e.target.value })} placeholder="Name" className="mt-2" />
+      )}
+    </div>
+  );
+}
+
 export function PettyCashFormDialog({ open, onOpenChange, projectId, type, record, people, onSaved }: Props) {
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [amount, setAmount] = useState('');
@@ -33,8 +87,11 @@ export function PettyCashFormDialog({ open, onOpenChange, projectId, type, recor
   const [category, setCategory] = useState('');
   const [payee, setPayee] = useState('');
   const [receiptNumber, setReceiptNumber] = useState('');
-  const [personId, setPersonId] = useState('');
-  const [personName, setPersonName] = useState('');
+  const [responsible, setResponsible] = useState<PersonChoice>({ id: '', name: '' });
+  // Top-ups: who sent the money, who received it, and the phone it went to
+  const [sentBy, setSentBy] = useState<PersonChoice>({ id: '', name: '' });
+  const [receivedBy, setReceivedBy] = useState<PersonChoice>({ id: '', name: '' });
+  const [phone, setPhone] = useState('');
   const [receipts, setReceipts] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -49,9 +106,10 @@ export function PettyCashFormDialog({ open, onOpenChange, projectId, type, recor
     setCategory(record?.category ?? '');
     setPayee(record?.payee ?? '');
     setReceiptNumber(record?.receiptNumber ?? '');
-    const knownId = record?.responsiblePerson?.userId;
-    setPersonId(knownId && people.some((p) => p.userId === knownId) ? knownId : record ? OTHER : '');
-    setPersonName(record?.responsiblePerson?.name ?? '');
+    setResponsible(choiceOf(record?.responsiblePerson, people));
+    setSentBy(choiceOf(record?.sentBy, people));
+    setReceivedBy(choiceOf(record?.receivedBy, people));
+    setPhone(record?.phone ?? '');
     setReceipts([]);
   }, [open, record, people]);
 
@@ -59,7 +117,10 @@ export function PettyCashFormDialog({ open, onOpenChange, projectId, type, recor
     e.preventDefault();
     if (!(Number(amount) > 0)) return toast.error('Enter an amount greater than zero');
     if (isPayment && !category) return toast.error('Choose the expense category');
-    if (!personId || (personId === OTHER && !personName.trim())) return toast.error('Choose who handled the cash');
+    const missing = (choice: PersonChoice) => !choice.id || (choice.id === OTHER && !choice.name.trim());
+    if (missing(responsible)) return toast.error('Choose who handled the cash');
+    if (!isPayment && missing(sentBy)) return toast.error('Choose who sent the money');
+    if (!isPayment && missing(receivedBy)) return toast.error('Choose who received the money');
 
     const data = {
       type: kind,
@@ -68,10 +129,15 @@ export function PettyCashFormDialog({ open, onOpenChange, projectId, type, recor
       description: description.trim(),
       category: isPayment ? category : undefined,
       payee: payee.trim(),
-      receiptNumber: receiptNumber.trim(),
-      ...(personId === OTHER
-        ? { responsiblePersonName: personName.trim(), responsiblePersonId: '' }
-        : { responsiblePersonId: personId }),
+      ...personPayload(responsible, 'responsiblePersonId', 'responsiblePersonName'),
+      // Payments have a receipt; top-ups record who sent and received the money and the phone used
+      ...(isPayment
+        ? { receiptNumber: receiptNumber.trim() }
+        : {
+            ...personPayload(sentBy, 'sentById', 'sentByName'),
+            ...personPayload(receivedBy, 'receivedById', 'receivedByName'),
+            phone: phone.trim(),
+          }),
     };
     setSaving(true);
     try {
@@ -141,30 +207,54 @@ export function PettyCashFormDialog({ open, onOpenChange, projectId, type, recor
           )}
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Responsible person</Label>
-              <Select value={personId} onValueChange={setPersonId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Who handled the cash" />
-                </SelectTrigger>
-                <SelectContent>
-                  {people.map((p) => (
-                    <SelectItem key={p.userId} value={p.userId}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value={OTHER}>Someone else</SelectItem>
-                </SelectContent>
-              </Select>
-              {personId === OTHER && (
-                <Input value={personName} onChange={(e) => setPersonName(e.target.value)} placeholder="Name" className="mt-2" />
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pc-receipt-no">Receipt number</Label>
-              <Input id="pc-receipt-no" value={receiptNumber} onChange={(e) => setReceiptNumber(e.target.value)} />
-            </div>
+            <PersonPicker
+              id="pc-responsible"
+              label="Responsible person"
+              placeholder="Who handles the cash"
+              people={people}
+              value={responsible}
+              onChange={setResponsible}
+            />
+            {isPayment ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="pc-receipt-no">Receipt number</Label>
+                <Input id="pc-receipt-no" value={receiptNumber} onChange={(e) => setReceiptNumber(e.target.value)} />
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label htmlFor="pc-phone">Phone number</Label>
+                <Input
+                  id="pc-phone"
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+250 7…"
+                  maxLength={50}
+                />
+              </div>
+            )}
           </div>
+
+          {!isPayment && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <PersonPicker
+                id="pc-sent-by"
+                label="Sent by"
+                placeholder="Who sent the money"
+                people={people}
+                value={sentBy}
+                onChange={setSentBy}
+              />
+              <PersonPicker
+                id="pc-received-by"
+                label="Received by"
+                placeholder="Who received the money"
+                people={people}
+                value={receivedBy}
+                onChange={setReceivedBy}
+              />
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label htmlFor="pc-receipts">Receipts</Label>

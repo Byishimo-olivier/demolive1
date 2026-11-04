@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { differenceInCalendarDays } from 'date-fns';
+import { differenceInCalendarDays, format, startOfMonth, subDays } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
 import { projectApi } from '@/lib/project-api';
 import {
@@ -278,3 +278,34 @@ export function useProjectTeamOptions(projectId?: string, enabled = true): TeamO
 
   return options;
 }
+
+// Progress report periods (backend enum)
+export enum ReportingPeriod {
+  DAILY = 'daily',
+  WEEKLY = 'weekly',
+  MONTHLY = 'monthly',
+}
+
+export const REPORTING_PERIOD_LABEL: Record<string, string> = {
+  daily: 'Daily',
+  weekly: 'Weekly',
+  monthly: 'Monthly',
+};
+
+/** The days a progress report covers, ending on the day it was made. */
+export const periodRange = (period: string, end: Date = new Date()): { from: Date; to: Date } => {
+  switch (period?.toLowerCase()) {
+    case ReportingPeriod.DAILY:
+      return { from: end, to: end };
+    case ReportingPeriod.MONTHLY:
+      return { from: startOfMonth(end), to: end };
+    default:
+      return { from: subDays(end, 6), to: end };
+  }
+};
+
+export const formatPeriodRange = (period: string, end: Date = new Date()): string => {
+  const { from, to } = periodRange(period, end);
+  if (from.toDateString() === to.toDateString()) return format(to, 'd MMM yyyy');
+  return `${format(from, from.getFullYear() === to.getFullYear() ? 'd MMM' : 'd MMM yyyy')} – ${format(to, 'd MMM yyyy')}`;
+};

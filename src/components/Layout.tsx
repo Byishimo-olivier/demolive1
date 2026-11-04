@@ -10,7 +10,7 @@ import { cn } from '../lib/utils';
 import { motion } from 'motion/react';
 
 export function Layout() {
-  const { user, loading } = useAuth();
+  const { user, loading, activeProfile } = useAuth();
   const { currentProject } = useProject();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const location = useLocation();
@@ -28,11 +28,17 @@ export function Layout() {
     return <Navigate to="/login" replace />;
   }
 
+  // No company yet: register one first (settings and payment pages stay open)
+  const openWithoutCompany = ['/register-company', '/settings', '/payment/result'];
+  if (!activeProfile && !openWithoutCompany.some((path) => location.pathname.startsWith(path))) {
+    return <Navigate to="/register-company" replace />;
+  }
+
   const projectRoutes = ['/procurement', '/finance', '/contracts', '/reports', '/timeline', '/inventory'];
   const isProjectRoute = projectRoutes.some(route => location.pathname.startsWith(route));
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="min-h-screen app-canvas flex flex-col">
       <Navbar onToggleSidebar={() => setIsSidebarCollapsed(prev => !prev)} isSidebarCollapsed={isSidebarCollapsed} />
 
       <div className="flex-1 flex overflow-hidden">
@@ -44,13 +50,14 @@ export function Layout() {
           transition={{ duration: 0.3 }}
           className={cn(
             "flex-1 overflow-y-auto transition-all duration-300",
-            isSidebarCollapsed ? "ml-[68px]" : "ml-60"
+            // Sidebar width + the gaps around it
+            isSidebarCollapsed ? "ml-[92px]" : "ml-[264px]"
           )}
         >
-          <div className="container mx-auto p-6 lg:p-8">
+          <div className="container mx-auto px-4 py-6 lg:px-6 lg:py-8">
             {isProjectRoute && currentProject && (
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 onClick={() => navigate(`/projects/${currentProject._id}`)}
                 className="mb-4 -ml-2 text-gray-500 hover:text-gray-900"
               >

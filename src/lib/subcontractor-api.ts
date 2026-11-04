@@ -14,6 +14,17 @@ export interface SubcontractorTotals {
   paymentCount: number;
 }
 
+// One line of a subcontractor's bill of quantities; amount = quantity × rate
+export interface SubcontractorBoqItem {
+  _id?: string;
+  itemNo?: string;
+  description: string;
+  unit?: string;
+  quantity: number;
+  rate: number;
+  amount: number;
+}
+
 export interface Subcontractor {
   _id: string;
   projectId: string;
@@ -24,6 +35,7 @@ export interface Subcontractor {
   email?: string;
   tin?: string;
   contractAmount: number;
+  boqItems?: SubcontractorBoqItem[];
   startDate?: string;
   endDate?: string;
   status: SubcontractorStatus;
@@ -41,6 +53,8 @@ export interface SubcontractorInput {
   email?: string;
   tin?: string;
   contractAmount?: number;
+  // Replaces the whole BoQ when sent; the amount is worked out by the server
+  boqItems?: Omit<SubcontractorBoqItem, '_id' | 'amount'>[];
   startDate?: string;
   endDate?: string;
   notes?: string;

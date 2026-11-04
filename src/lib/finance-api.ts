@@ -152,6 +152,18 @@ export interface CreateBudgetRequest {
   approvalStatus?: string;
 }
 
+// What a manual expense paid for, by category (worker, machine, material, fuel, payee)
+export interface ExpenseDetails {
+  name?: string;
+  phone?: string;
+  supplier?: string;
+  quantity?: number;
+  unit?: string;
+  rate?: number;
+  fuelType?: string;
+  vehicle?: string;
+}
+
 export interface Expense {
   _id: string;
   projectId: string;
@@ -167,6 +179,7 @@ export interface Expense {
   approval?: { reviewedBy?: string; reviewedByName?: string; reviewedAt?: string; comment?: string };
   // Recorded by a role the Client authorized in writing (not the owner)
   authorizedUnder?: string;
+  details?: ExpenseDetails;
   createdBy: string;
   updatedBy: string;
   createdAt: string;
@@ -189,6 +202,8 @@ export interface CreateExpenseRequest {
   category: string;
   amount: number;
   description: string;
+  // null clears them
+  details?: ExpenseDetails | null;
   document?: File;
 }
 
@@ -508,7 +523,10 @@ export const financeApi = {
     Object.entries(data).forEach(([key, value]) => {
       if (key === 'document' && value instanceof File) {
         formData.append('document', value);
-      } else if (key !== 'document') {
+      } else if (key === 'details') {
+        // Multipart fields are text: the details travel as JSON
+        formData.append('details', value ? JSON.stringify(value) : 'null');
+      } else if (key !== 'document' && value !== undefined && value !== null) {
         formData.append(key, value.toString());
       }
     });
@@ -525,7 +543,10 @@ export const financeApi = {
     Object.entries(data).forEach(([key, value]) => {
       if (key === 'document' && value instanceof File) {
         formData.append('document', value);
-      } else if (key !== 'document') {
+      } else if (key === 'details') {
+        // Multipart fields are text: the details travel as JSON
+        formData.append('details', value ? JSON.stringify(value) : 'null');
+      } else if (key !== 'document' && value !== undefined && value !== null) {
         formData.append(key, value.toString());
       }
     });

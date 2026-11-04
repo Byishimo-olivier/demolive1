@@ -70,6 +70,7 @@ function App() {
           {/* Protected Routes */}
           <Route element={<Layout />}>
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/overall" element={<Navigate to="/dashboard" replace />} />
             <Route path="/register-company" element={<RegisterCompany />} />
             <Route path="/projects" element={<Projects />} />
             <Route path="/projects/:projectId" element={<ProjectDetails />} />

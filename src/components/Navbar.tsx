@@ -25,14 +25,14 @@ export function Navbar({ onToggleSidebar, isSidebarCollapsed }: NavbarProps) {
   const navigate = useNavigate();
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-gray-200 bg-white">
-      <div className="flex h-14 items-center justify-between px-4 md:px-6">
+    <header className="sticky top-0 z-50 w-full px-3 pt-3">
+      <div className="surface-glass flex h-14 items-center justify-between rounded-2xl px-3 shadow-elev-1 md:px-4">
         <div className="flex items-center gap-4">
           <Button
             variant="ghost"
             size="icon"
             onClick={onToggleSidebar}
-            className="rounded-lg hover:bg-gray-100 text-gray-600 hover:text-gray-900 transition-colors"
+            className="rounded-xl hover:bg-black/[0.05] text-gray-600 hover:text-gray-900 transition-colors"
           >
             {isSidebarCollapsed ? (
               <PanelLeft className="h-5 w-5" />
@@ -54,8 +54,8 @@ export function Navbar({ onToggleSidebar, isSidebarCollapsed }: NavbarProps) {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-9 w-9 rounded-lg hover:bg-gray-100">
-                <Avatar className="h-9 w-9 border-2 border-gray-200">
-                  <AvatarFallback className="bg-blue-600 text-white font-semibold text-sm">
+                <Avatar className="h-9 w-9 ring-2 ring-white shadow-elev-1">
+                  <AvatarFallback className="bg-stone-950 text-orange-400 font-semibold text-sm">
                     {user?.fullName?.[0] || 'U'}
                   </AvatarFallback>
                 </Avatar>
@@ -71,22 +71,11 @@ export function Navbar({ onToggleSidebar, isSidebarCollapsed }: NavbarProps) {
               <DropdownMenuSeparator />
 
               {/* Profile Switching */}
-              {activeProfile && (
+              {activeProfile && organizationProfiles.length > 1 && (
                 <>
                   <DropdownMenuLabel className="text-xs text-gray-400 uppercase tracking-wider">
-                    Switch Profile
+                    Switch company
                   </DropdownMenuLabel>
-                  <DropdownMenuItem
-                    onClick={() => switchToProfile('personal', user!._id || user!.id)}
-                    className={`rounded-lg mx-1 ${activeProfile.type === 'personal' ? 'bg-blue-50 text-blue-700' : ''}`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-md bg-blue-600 flex items-center justify-center">
-                        <span className="text-[10px] text-white font-bold">{user?.fullName?.[0]}</span>
-                      </div>
-                      <span className="text-sm">Personal</span>
-                    </div>
-                  </DropdownMenuItem>
                   {organizationProfiles.map((org) => (
                     <DropdownMenuItem
                       key={org._id}

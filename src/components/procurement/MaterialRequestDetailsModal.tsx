@@ -29,7 +29,7 @@ export function MaterialRequestDetailsModal({
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold flex items-center justify-between">
-            <span>Material Request Details</span>
+            <span>Request Details</span>
             <Badge variant={request.status === 'Approved' ? 'default' : request.status === 'Rejected' ? 'destructive' : 'secondary'} className="capitalize mr-4">
               {request.status}
             </Badge>
@@ -62,7 +62,9 @@ export function MaterialRequestDetailsModal({
             </div>
 
             <div>
-              <h4 className="font-medium text-gray-900 mb-3">Materials</h4>
+              <h4 className="font-medium text-gray-900 mb-3">
+                {request.requestType === 'Other' ? 'Services / items' : 'Materials'}
+              </h4>
               <div className="border rounded-md">
                 <Table>
                   <TableHeader>

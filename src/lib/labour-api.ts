@@ -49,6 +49,8 @@ export interface Worker {
   // Period rates: working days the pay covers
   periodDays?: number;
   unitLabel?: string;
+  // Days of work one payment covers (paid every 1, 2, 5… days)
+  payEveryDays?: number;
   active: boolean;
 }
 
@@ -61,6 +63,7 @@ export interface WorkerInput {
   rate: number;
   periodDays?: number;
   unitLabel?: string;
+  payEveryDays?: number;
   active?: boolean;
 }
 
@@ -155,6 +158,13 @@ export const labourApi = {
 
   createWorker: async (projectId: string, data: WorkerInput) => {
     const response = await api.post<ApiResponse<Worker>>('/finance/labour/workers', { ...data, projectId });
+    return response.data;
+  },
+
+  importWorkers: async (projectId: string, workers: Partial<WorkerInput>[]) => {
+    const response = await api.post<
+      ApiResponse<{ created: number; skipped: { row: number; fullName: string; reason: string }[] }>
+    >('/finance/labour/workers/import', { projectId, workers });
     return response.data;
   },
 

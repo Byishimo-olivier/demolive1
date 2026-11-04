@@ -212,7 +212,7 @@ export function PurchaseOrderModal({
     }
 
     if (creationMode === "from-request" && !formData.materialRequestId) {
-      toast.error("Please select a material request to proceed");
+      toast.error("Please select a request to proceed");
       return;
     }
 
@@ -235,7 +235,7 @@ export function PurchaseOrderModal({
       if (creationMode === "from-request") {
         data.materialList = [];
         if (!data.materialRequestId) {
-          toast.error("Material Request ID is required.");
+          toast.error("Request ID is required.");
           setIsSubmitting(false);
           return;
         }
@@ -315,7 +315,7 @@ export function PurchaseOrderModal({
                   className="h-24 flex flex-col gap-2 p-4"
                 >
                   <FileText className="h-5 w-5" />
-                  <div className="font-semibold">From Material Request</div>
+                  <div className="font-semibold">From Request</div>
                   <div className="text-xs opacity-80">
                     {materialRequests.length === 0 ? "No requests available" : `${materialRequests.length} requests available`}
                   </div>
@@ -380,13 +380,13 @@ export function PurchaseOrderModal({
           {/* Material Request Selection */}
           {creationMode === "from-request" && (
             <div>
-              <Label htmlFor="materialRequest">Select Material Request *</Label>
+              <Label htmlFor="materialRequest">Select Request *</Label>
               <Select
                 value={selectedMaterialRequest}
                 onValueChange={handleMaterialRequestSelection}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Choose a material request..." />
+                  <SelectValue placeholder="Choose a request..." />
                 </SelectTrigger>
                 <SelectContent>
                   {materialRequests
@@ -531,7 +531,7 @@ export function PurchaseOrderModal({
               </div>
             ) : (
               <div className="p-4 bg-gray-50 rounded-lg">
-                <h4 className="font-semibold mb-2">Material List (from Material Request)</h4>
+                <h4 className="font-semibold mb-2">Material List (from Request)</h4>
                 {materialRequests
                   .find((mr) => mr._id === selectedMaterialRequest)
                   ?.materialDetails.map((detail, index) => (

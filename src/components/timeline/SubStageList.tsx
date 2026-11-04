@@ -18,7 +18,6 @@ import {
   Trash2,
   User,
   UserPlus,
-  Wand2,
   X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -26,7 +25,6 @@ import { cn } from '@/lib/utils';
 import { getErrorMessage } from '@/utils/error-handler';
 import { Can } from '@/components/PermissionGate';
 import { Permissions } from '@/constants/permissions';
-import { useCurrency } from '@/contexts/CurrencyContext';
 import {
   personName,
   timelineApi,
@@ -39,7 +37,7 @@ import {
 } from '@/lib/timeline-api';
 import { WorkItemModal } from './WorkItemModal';
 import { ApprovalBadge, ReviewDialog } from './TimelineApproval';
-import { budgetUsage, templateForStage, usePlanLocked, useStageTemplates } from './timeline-utils';
+import { usePlanLocked } from './timeline-utils';
 
 const STATUS_STYLES: Record<string, string> = {
   Completed: 'bg-green-50 text-green-700 border-green-200',
@@ -72,7 +70,6 @@ const moved = (ids: string[], index: number, direction: -1 | 1) => {
 };
 
 export function SubStageList({ stage, canApprove, onStageUpdated, onReload }: SubStageListProps) {
-  const templates = useStageTemplates();
   // Locked timeline: no adding, removing or reordering
   const planLocked = usePlanLocked();
   const [modal, setModal] = useState<ModalState | null>(null);
@@ -81,10 +78,6 @@ export function SubStageList({ stage, canApprove, onStageUpdated, onReload }: Su
   const [busy, setBusy] = useState(false);
 
   const subStages = stage.subStages || [];
-  const template = templateForStage(templates, stage.stage);
-  const missingTemplateItems = (template?.subStages || []).filter(
-    (t) => !subStages.some((s) => s.name.trim().toLowerCase() === t.name.toLowerCase())
-  );
 
   // Run a mutation that returns the updated stage
   const run = async (action: () => Promise<{ data: ProjectStage; message?: string }>, fallbackError: string, success?: string) => {
@@ -109,8 +102,6 @@ export function SubStageList({ stage, canApprove, onStageUpdated, onReload }: Su
       return next;
     });
 
-  const handleLoadTemplate = () =>
-    run(() => timelineApi.applyStageTemplate(stage._id), 'Failed to load standard sub-stages', 'Standard sub-stages added');
 
   const handleSave = async (payload: SubStageRequest) => {
     if (!modal) return undefined;
@@ -199,9 +190,6 @@ export function SubStageList({ stage, canApprove, onStageUpdated, onReload }: Su
     }
   };
 
-  const subStageTaskNames = (subStage: SubStage) =>
-    template?.subStages.find((t) => t.name.toLowerCase() === subStage.name.trim().toLowerCase())?.tasks || [];
-
   return (
     <div className="mt-4 border-t border-gray-100 pt-4">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -220,21 +208,6 @@ export function SubStageList({ stage, canApprove, onStageUpdated, onReload }: Su
         ) : (
         <Can permission={Permissions.UPDATE_PROJECT_STAGE}>
           <div className="flex flex-wrap gap-2">
-            {missingTemplateItems.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleLoadTemplate}
-                disabled={busy}
-                className="h-8 border-gray-200"
-                title={missingTemplateItems.map((t) => t.name).join(', ')}
-              >
-                <Wand2 className="h-3.5 w-3.5 mr-1" />
-                {subStages.length === 0
-                  ? 'Load standard sub-stages'
-                  : `Add ${missingTemplateItems.length} missing standard sub-stage${missingTemplateItems.length === 1 ? '' : 's'}`}
-              </Button>
-            )}
             <Button
               variant="outline"
               size="sm"
@@ -251,7 +224,7 @@ export function SubStageList({ stage, canApprove, onStageUpdated, onReload }: Su
 
       {subStages.length === 0 ? (
         <p className="text-sm text-gray-400">
-          No sub-stages yet. Load the standard sub-stages for {stage.stage}, or add your own.
+          No sub-stages yet.
         </p>
       ) : (
         <div className="space-y-2">
@@ -346,24 +319,10 @@ export function SubStageList({ stage, canApprove, onStageUpdated, onReload }: Su
         parentEnd={modal?.kind === 'task' ? modal.subStage.endDate : stage.endDate}
         item={modal?.item}
         hasChildren={modal?.kind === 'sub-stage' && !!modal.item?.tasks?.length}
-        inheritedBudget={
-          modal && !modal.item
-            ? modal.kind === 'task'
-              ? (modal.subStage.tasks?.length ? 0 : modal.subStage.budget || 0)
-              : (subStages.length ? 0 : stage.budget || 0)
-            : 0
-        }
-        inheritedActualCost={
-          modal && !modal.item
-            ? modal.kind === 'task'
-              ? (modal.subStage.tasks?.length ? 0 : modal.subStage.actualCost || 0)
-              : (subStages.length ? 0 : stage.actualCost || 0)
-            : 0
-        }
         suggestions={
           modal?.kind === 'task'
-            ? subStageTaskNames(modal.subStage)
-            : (template?.subStages || []).map((t) => t.name)
+            ? []
+            : []
         }
         onSave={handleSave}
       />
@@ -411,12 +370,11 @@ function WorkItemRow({
   leading,
   footer,
 }: WorkItemRowProps) {
-  const { formatAmount } = useCurrency();
   const { can } = useAuth();
   const canEdit = can(Permissions.UPDATE_PROJECT_STAGE);
   const isDone = item.status === 'Completed';
   const planLocked = usePlanLocked();
-  const usage = budgetUsage(item.budget || 0, item.actualCost || 0);
+  const progress = item.status === 'Completed' ? 100 : Math.round(item.progressPercentage || 0);
   const responsible = personName(item.responsiblePerson, item.responsiblePersonName);
   // The typed requester (e.g. the client) wins over the user who created the record
   const requestedBy = item.requestedByName || personName(item.requestedBy);
@@ -456,12 +414,15 @@ function WorkItemRow({
                 {format(new Date(item.startDate), 'MMM d, yyyy')} – {format(new Date(item.endDate), 'MMM d, yyyy')}
               </span>
               <span>{item.plannedDuration} day{item.plannedDuration === 1 ? '' : 's'}</span>
-              <span className={cn(usage.isOver && 'text-red-700')}>
-                Used {formatAmount(usage.used)} of {formatAmount(usage.budget)}
+              <span className="flex items-center gap-1.5" title="Actual progress">
+                <span className="h-1.5 w-16 overflow-hidden rounded-full bg-gray-200">
+                  <span
+                    className={cn('block h-full rounded-full', progress >= 100 ? 'bg-green-600' : 'bg-indigo-600')}
+                    style={{ width: `${progress}%` }}
+                  />
+                </span>
+                {progress}% done
               </span>
-              {usage.isOver && (
-                <span className="font-medium text-red-700">Over budget by {formatAmount(usage.over)}</span>
-              )}
               <span className="flex items-center gap-1">
                 <User className="h-3 w-3" />
                 {responsible || 'No responsible person'}

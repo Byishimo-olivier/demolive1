@@ -130,7 +130,8 @@ export function InventoryForm({ projectId, location, locationId, item, onSuccess
             type="number"
             min="0"
             step="0.01"
-            value={formData.unitPrice}
+            value={formData.unitPrice || ''}
+            placeholder="0"
             onChange={(e) => set('unitPrice', parseFloat(e.target.value) || 0)}
             required
           />
@@ -142,7 +143,8 @@ export function InventoryForm({ projectId, location, locationId, item, onSuccess
             type="number"
             min="0"
             step="0.01"
-            value={formData.minimumStock}
+            value={formData.minimumStock || ''}
+            placeholder="0"
             onChange={(e) => set('minimumStock', parseFloat(e.target.value) || 0)}
           />
         </div>
@@ -154,7 +156,8 @@ export function InventoryForm({ projectId, location, locationId, item, onSuccess
               type="number"
               min="0"
               step="0.01"
-              value={formData.openingStock ?? 0}
+              value={formData.openingStock || ''}
+              placeholder="0"
               onChange={(e) => set('openingStock', parseFloat(e.target.value) || 0)}
             />
           </div>
