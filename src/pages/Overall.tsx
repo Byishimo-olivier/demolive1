@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { DashboardCharts } from '@/components/dashboard/DashboardCharts';
 import { ProfitLossPanel } from '@/components/dashboard/ProfitLossPanel';
 import { ExportMenu } from '@/components/dashboard/ExportMenu';
+import { NotificationsPanel } from '@/components/notifications/NotificationsPanel';
 import { dashboardApi } from '@/lib/dashboard-api';
 import { exportDashboard, type DashboardExportFormat } from '@/lib/dashboard-export';
 import { useCurrency } from '@/contexts/CurrencyContext';
@@ -172,6 +173,11 @@ export function Overall() {
             </CardContent>
           </Card>
         ))}
+      </motion.div>
+
+      {/* What happened on the projects, one click from where it happened */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
+        <NotificationsPanel />
       </motion.div>
 
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>

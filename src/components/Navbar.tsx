@@ -14,6 +14,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { CurrencySwitcher } from './CurrencySwitcher';
 import { BrandLogo } from '@/components/BrandLogo';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -51,6 +52,7 @@ export function Navbar({ onToggleSidebar, isSidebarCollapsed }: NavbarProps) {
 
         <div className="flex items-center gap-2">
           <CurrencySwitcher compact />
+          {activeProfile && <NotificationBell />}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-9 w-9 rounded-lg hover:bg-gray-100">
