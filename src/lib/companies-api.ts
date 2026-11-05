@@ -2,15 +2,24 @@ import { api } from './axios';
 import { Permissions } from '../constants/permissions';
 import { UserRole, CreateCompanyData, InviteMemberData, Project } from '../types';
 
+export interface CompanyInvitationDetails {
+  email: string;
+  role: string;
+  companyId: string;
+  companyName: string;
+  expiresAt: string;
+  accountExists: boolean;
+}
+
 // API Functions
 export const companiesApi = {
   createCompany: async (data: CreateCompanyData) => {
     // Check if we have files to upload
     const hasFiles = data.experienceDocuments?.length || data.certificationDocuments?.length;
-    
+
     if (hasFiles) {
       const formData = new FormData();
-      
+
       // Add regular fields
       Object.entries(data).forEach(([key, value]) => {
         if (key === 'experienceDocuments' || key === 'certificationDocuments') {
@@ -28,21 +37,21 @@ export const companiesApi = {
           formData.append(key, value.toString());
         }
       });
-      
+
       // Add experience documents
       if (data.experienceDocuments) {
         data.experienceDocuments.forEach((file) => {
           formData.append('experienceDocuments', file);
         });
       }
-      
+
       // Add certification documents
       if (data.certificationDocuments) {
         data.certificationDocuments.forEach((file) => {
           formData.append('certificationDocuments', file);
         });
       }
-      
+
       const response = await api.post('/companies', formData, {
         requiresPermission: Permissions.COMPANY_CREATE,
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -67,10 +76,10 @@ export const companiesApi = {
   updateCompany: async (id: string, data: Partial<CreateCompanyData>) => {
     // Check if we have files to upload
     const hasFiles = data.experienceDocuments?.length || data.certificationDocuments?.length;
-    
+
     if (hasFiles) {
       const formData = new FormData();
-      
+
       // Add regular fields
       Object.entries(data).forEach(([key, value]) => {
         if (key === 'experienceDocuments' || key === 'certificationDocuments') {
@@ -88,21 +97,21 @@ export const companiesApi = {
           formData.append(key, value.toString());
         }
       });
-      
+
       // Add experience documents
       if (data.experienceDocuments) {
         data.experienceDocuments.forEach((file) => {
           formData.append('experienceDocuments', file);
         });
       }
-      
+
       // Add certification documents
       if (data.certificationDocuments) {
         data.certificationDocuments.forEach((file) => {
           formData.append('certificationDocuments', file);
         });
       }
-      
+
       const response = await api.patch(`/companies/${id}`, formData, {
         requiresPermission: Permissions.COMPANY_UPDATE,
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -134,6 +143,20 @@ export const companiesApi = {
     const response = await api.post('/companies/invitation', data, {
       requiresPermission: Permissions.COMPANY_INVITE_MEMBER
     });
+    return response.data;
+  },
+
+  // Public: what a company invitation is for (the sign-up page checks the link first)
+  getInvitationDetails: async (token: string): Promise<CompanyInvitationDetails> => {
+    const response = await api.get<{ data: CompanyInvitationDetails }>(
+      `/companies/invitation/details/${encodeURIComponent(token)}`
+    );
+    return response.data.data;
+  },
+
+  // Cancel an invitation that was not accepted yet
+  cancelInvitation: async (companyId: string, invitationId: string) => {
+    const response = await api.delete(`/companies/${companyId}/invitations/${invitationId}`);
     return response.data;
   },
 

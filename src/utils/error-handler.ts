@@ -7,7 +7,7 @@
 export const EMAIL_NOT_VERIFIED_CODE = 'EMAIL_NOT_VERIFIED';
 
 // 403 codes whose server message tells the user what to do (safe to show)
-const EXPLAINED_403_CODES = new Set(['TIMELINE_LOCKED', 'MD_APPROVAL_REQUIRED']);
+const EXPLAINED_403_CODES = new Set(['TIMELINE_LOCKED', 'MD_APPROVAL_REQUIRED', 'INVITATION_EMAIL_MISMATCH']);
 
 const errorCode = (error: unknown): string =>
   (error as { response?: { data?: { error?: { details?: { code?: string } } } } })?.response?.data?.error?.details
@@ -43,7 +43,10 @@ export function getErrorMessage(error: unknown, fallback: string = 'An unexpecte
 
   // Sensitive errors — don't leak details
   if (status === 401) {
-    return 'Your session has expired. Please log in again.';
+    // Signing in with a wrong password is a 401 too: only a request made while signed in
+    // means the session ran out
+    const sentToken = !!(error as { config?: { headers?: Record<string, unknown> } })?.config?.headers?.Authorization;
+    return sentToken ? 'Your session has expired. Please sign in again.' : serverMessage || fallback;
   }
 
   // Subscription/plan limit errors (often 402 or specific messages)

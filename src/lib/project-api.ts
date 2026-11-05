@@ -136,19 +136,10 @@ export const projectApi = {
     return response.data;
   },
 
-  getProjects: async (companyId?: string): Promise<ProjectsResponse> => {
-    const endpoint = companyId 
-      ? `/companies/${companyId}/projects`
-      : '/projects/user/me';
-    
-    const permission = companyId 
-      ? Permissions.COMPANY_VIEW_PROJECTS 
-      : Permissions.VIEW_PROJECT;
-      console.log(permission, companyId);
-    
-    const response = await api.get<ProjectsResponse>(endpoint, {
-      requiresPermission: permission
-    });
+  // The projects the user can open in the active company (sent in the company header): all of
+  // them for the owner / MD, only the ones they are on for everyone else
+  getProjects: async (_companyId?: string): Promise<ProjectsResponse> => {
+    const response = await api.get<ProjectsResponse>('/projects/user/me');
     return response.data;
   },
 
@@ -233,6 +224,14 @@ export const projectApi = {
     return response.data;
   },
 
+  // Cancel an invitation that was not accepted yet
+  cancelInvitation: async (projectId: string, invitationId: string) => {
+    const response = await api.delete(`/projects/invitation/${projectId}/${invitationId}`, {
+      requiresPermission: Permissions.MANAGE_PROJECT_TEAM
+    });
+    return response.data;
+  },
+
   getPendingInvitations: async (projectId: string) => {
     const response = await api.get(`/projects/invitation/pending/${projectId}`, {
       requiresPermission: Permissions.MANAGE_PROJECT_TEAM
@@ -250,7 +249,7 @@ export const projectApi = {
     if (filters?.type) params.append('type', filters.type);
     if (filters?.startDate) params.append('startDate', filters.startDate);
     if (filters?.endDate) params.append('endDate', filters.endDate);
-    
+
     return api.get(`/projects/${projectId}/documents?${params.toString()}`, {
       requiresPermission: Permissions.VIEW_DOCUMENT
     });

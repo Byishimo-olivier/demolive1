@@ -110,12 +110,12 @@ export function Members() {
 
   const loadMembers = async () => {
     if (activeProfile?.type !== 'organization' || !activeProfile?.id) return;
-    
+
     try {
       setLoading(true);
       const response = await companiesApi.getCompany(activeProfile.id);
       // console.log('Company response:', response);
-      
+
       // Handle the API response structure
       const company = response.data || response;
 
@@ -129,17 +129,17 @@ export function Members() {
       } finally {
         setProjectsLoading(false);
       }
-      
+
       // Helper function to get owner ID consistently
       const getOwnerId = (ownerId: string | { _id: string; fullName: string; email: string }) => {
         return typeof ownerId === 'string' ? ownerId : ownerId._id;
       };
-      
+
       // Helper function to get owner info consistently
       const getOwnerInfo = (ownerId: string | { _id: string; fullName: string; email: string }) => {
         if (typeof ownerId === 'string') {
           // If ownerId is just a string, we need to find the owner in members
-          const ownerMember = company.members?.find((member: ApiMember) => 
+          const ownerMember = company.members?.find((member: ApiMember) =>
             (typeof member.userId === 'string' ? member.userId : member.userId._id) === ownerId
           );
           if (ownerMember) {
@@ -155,7 +155,7 @@ export function Members() {
         }
         return { _id: ownerId._id, fullName: ownerId.fullName, email: ownerId.email };
       };
-      
+
       // Helper function to get user info from member
       const getUserInfo = (member: ApiMember) => {
         if (typeof member.userId === 'string') {
@@ -173,10 +173,10 @@ export function Members() {
           profilePicture: member.userId.profilePicture
         };
       };
-      
+
       // Create members array starting with the owner
       const allMembers: CompanyMember[] = [];
-      
+
       // Add owner as first member
       if (company.ownerId) {
         const ownerInfo = getOwnerInfo(company.ownerId);
@@ -188,12 +188,12 @@ export function Members() {
           joinedAt: company.createdAt
         });
       }
-      
+
       // Add other members
       const companyMembers = company.members || [];
       // console.log("companyMembers", companyMembers)
       const ownerId = getOwnerId(company.ownerId);
-      
+
       const otherMembers: CompanyMember[] = companyMembers
         .filter((member: ApiMember) => {
           const memberUserId = typeof member.userId === 'string' ? member.userId : member.userId._id;
@@ -206,10 +206,10 @@ export function Members() {
           role: member.role,
           joinedAt: member.joinedAt || new Date().toISOString()
         }));
-      
+
       allMembers.push(...otherMembers);
       setMembers(allMembers);
-      
+
       // Fetch pending invitations using new API
       try {
         const invitesRes = await companiesApi.getPendingInvitations(activeProfile.id);
@@ -287,6 +287,18 @@ export function Members() {
       toast.error(getErrorMessage(error, 'Failed to send invitation'));
     } finally {
       setInviteLoading(false);
+    }
+  };
+
+  const handleCancelInvite = async (invite: CompanyInvite) => {
+    if (!activeProfile?.id) return;
+    if (!confirm(`Cancel the invitation to ${invite.email}? The link they received will stop working.`)) return;
+    try {
+      await companiesApi.cancelInvitation(activeProfile.id, invite._id);
+      toast.success('Invitation cancelled');
+      setInvites((current) => current.filter((i) => i._id !== invite._id));
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, 'Failed to cancel the invitation'));
     }
   };
 
@@ -428,7 +440,7 @@ export function Members() {
                                 {humanizeLabel(key)}
                               </DropdownMenuItem>
                             ))}
-                            <DropdownMenuItem 
+                            <DropdownMenuItem
                               onClick={() => handleDeleteMember(member._id)}
                               className="text-red-600"
                             >
@@ -462,6 +474,7 @@ export function Members() {
                   <TableHead>Role</TableHead>
                   <TableHead>Invited</TableHead>
                   <TableHead>Status</TableHead>
+                  {canEditMembers && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -475,12 +488,25 @@ export function Members() {
                       {new Date(invite.createdAt).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      <Badge 
+                      <Badge
                         variant={invite.status === 'pending' ? 'default' : 'secondary'}
                       >
                         {invite.status}
                       </Badge>
                     </TableCell>
+                    {canEditMembers && (
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleCancelInvite(invite)}
+                          className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                        >
+                          <Trash2 className="mr-1.5 h-4 w-4" />
+                          Cancel invite
+                        </Button>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -609,7 +635,7 @@ export function Members() {
                 </div>
               </div>
             ))}
-            
+
             <Button
               type="button"
               variant="outline"
@@ -619,7 +645,7 @@ export function Members() {
               <Plus className="mr-2 h-4 w-4" />
               Add Another Member
             </Button>
-            
+
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => setInviteModalOpen(false)} disabled={inviteLoading}>
                 Cancel
@@ -634,4 +660,4 @@ export function Members() {
       )}
     </div>
   );
-} 
+}

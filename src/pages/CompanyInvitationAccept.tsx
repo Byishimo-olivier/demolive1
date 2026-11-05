@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { companiesApi } from '@/lib/companies-api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -15,6 +15,7 @@ import {
 import toast from 'react-hot-toast';
 import { motion } from 'motion/react';
 import { BrandLogo } from '@/components/BrandLogo';
+import { getErrorMessage } from '@/utils/error-handler';
 
 export default function CompanyInvitationAccept() {
   const { token } = useParams<{ token: string }>();
@@ -22,6 +23,9 @@ export default function CompanyInvitationAccept() {
   const { user, refreshUserCompanies, loading: authLoading } = useAuth();
   const [status, setStatus] = useState<'loading' | 'processing' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState<string>('Loading...');
+  // An invitation is accepted once: re-renders (and React's double effects) must not send it again,
+  // or the second request finds it used and reports it as invalid
+  const attempted = useRef(false);
 
   useEffect(() => {
     const acceptInvitation = async () => {
@@ -39,12 +43,14 @@ export default function CompanyInvitationAccept() {
         return;
       }
 
-      // Check if user is authenticated
+      // Not signed in: sign in, then come back here to accept
       if (!user) {
-        setStatus('error');
-        setMessage('You must be logged in to accept an invitation. Please log in first.');
+        navigate(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
         return;
       }
+
+      if (attempted.current) return;
+      attempted.current = true;
 
       // Start processing
       setStatus('processing');
@@ -52,39 +58,30 @@ export default function CompanyInvitationAccept() {
 
       try {
         const response = await companiesApi.acceptInvitation(token);
-        
+
         if (response.success) {
           setStatus('success');
           setMessage(response.message || 'You have successfully joined the company!');
           toast.success('Welcome to the company!');
-          
+
           // Refresh user's company list
           await refreshUserCompanies(response.data?.companyId);
         } else {
           setStatus('error');
           setMessage(response.message || 'Failed to accept invitation. Please try again.');
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Error accepting invitation:', error);
-        
-        // Handle specific error cases
-        if (error.response?.status === 400) {
-          setMessage('Invalid or expired invitation token.');
-        } else if (error.response?.status === 409) {
-          setMessage('You are already a member of this company.');
-        } else if (error.response?.status === 404) {
-          setMessage('Invitation not found or has expired.');
-        } else {
-          setMessage('Failed to accept invitation. Please try again later.');
-        }
-        
+        // The server says why (already used, sent to another email, expired...)
+        setMessage(getErrorMessage(error, 'Failed to accept invitation. Please try again later.'));
         setStatus('error');
-        toast.error('Failed to accept invitation');
       }
     };
 
     acceptInvitation();
-  }, [token, user, authLoading, refreshUserCompanies]);
+    // refreshUserCompanies changes on every render; the attempt guard keeps this to one request
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, user, authLoading]);
 
   const handleGoToDashboard = () => navigate('/dashboard');
   // Come back here after signing in so the invitation is accepted

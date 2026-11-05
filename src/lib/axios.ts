@@ -187,11 +187,17 @@ axiosInstance.interceptors.response.use(
       localStorage.removeItem('infrasoko_user_companies');
       localStorage.removeItem('infrasoko_user_projects');
 
-      // Show token expired message
-      toast.error(error.response?.data?.message || 'An error occurred');
-
-      // Redirect to login page
-      // window.location.href = '/login';
+      // The session ran out (a request made while signed in): sign in again and come back to
+      // this page (e.g. the invitation being accepted). A wrong password at sign-in is not this.
+      const sentToken = !!error.config?.headers?.Authorization;
+      const path = window.location.pathname;
+      const infoPage = ['/', '/features', '/pricing', '/contact', '/privacy-policy', '/terms-of-service', '/invite/register', '/forgot-password', '/reset-password'].includes(path)
+        || path.startsWith('/verify-email');
+      if (sentToken && !path.startsWith('/login') && !infoPage) {
+        toast.error('Your session has expired. Please sign in again.');
+        const back = window.location.pathname + window.location.search;
+        window.location.href = `/login?redirect=${encodeURIComponent(back)}`;
+      }
       return Promise.reject(error);
     }
 

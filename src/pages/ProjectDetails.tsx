@@ -13,19 +13,19 @@ import {
   TableRow,
 } from '../components/ui/table';
 import { Avatar, AvatarFallback } from '../components/ui/avatar';
-import { 
-  ArrowLeft, 
-  Pencil, 
-  Users, 
-  Calendar, 
-  DollarSign, 
-  Package, 
-  AlertTriangle, 
-  Clock, 
-  Building2, 
-  FileText, 
-  Shield, 
-  BarChart3, 
+import {
+  ArrowLeft,
+  Pencil,
+  Users,
+  Calendar,
+  DollarSign,
+  Package,
+  AlertTriangle,
+  Clock,
+  Building2,
+  FileText,
+  Shield,
+  BarChart3,
   Mail,
   TrendingUp,
   FolderKanban,
@@ -39,6 +39,7 @@ import {
   Share2,
   Loader2,
   ShieldCheck,
+  Trash2,
 } from 'lucide-react';
 import { projectApi } from '../lib/project-api';
 import { procurementApi } from '../lib/procurement-api';
@@ -153,7 +154,7 @@ export function ProjectDetails() {
 
   const getAvailableTabs = () => {
     const baseTab = { value: 'overview', label: 'Overview', icon: BarChart3 };
-    
+
     if (activeProfile?.type !== 'organization') {
       return [
         baseTab,
@@ -198,12 +199,29 @@ export function ProjectDetails() {
       projectContextSetProject(response.data);
       loadAccess(projectId);
       await loadOverviewData(projectId);
-      await loadPendingInvitations(projectId);
+      // Only people who manage the team see its pending invitations
+      if (can(Permissions.MANAGE_PROJECT_TEAM)) {
+        await loadPendingInvitations(projectId);
+      } else {
+        setPendingInvites([]);
+      }
     } catch (error) {
       console.error('Error loading project:', error);
       toast.error(getErrorMessage(error, 'Failed to load project'));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function cancelInvite(invite: ProjectInvite) {
+    if (!projectId) return;
+    if (!confirm(`Cancel the invitation to ${invite.email}? The link they received will stop working.`)) return;
+    try {
+      await projectApi.cancelInvitation(projectId, invite._id);
+      toast.success('Invitation cancelled');
+      setPendingInvites((current) => current.filter((i) => i._id !== invite._id));
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to cancel the invitation'));
     }
   }
 
@@ -222,7 +240,7 @@ export function ProjectDetails() {
     try {
       const [
         materialRequestsRes,
-        purchaseOrdersRes, 
+        purchaseOrdersRes,
         budgetSummaryRes,
         invoicesRes,
         stagesRes,
@@ -238,7 +256,7 @@ export function ProjectDetails() {
         projectApi.getProjectDocuments(projectId)
       ]);
 
-      const safeExtract = (result: PromiseSettledResult<any>, fallback: any = null) => 
+      const safeExtract = (result: PromiseSettledResult<any>, fallback: any = null) =>
         result.status === 'fulfilled' ? result.value : fallback;
 
       const materialRequests = safeExtract(materialRequestsRes, { data: { docs: [] } });
@@ -291,9 +309,9 @@ export function ProjectDetails() {
         },
         inventory: {
           totalItems: inventory.data?.length || 0,
-          lowStockItems: inventory.data?.filter((item: { currentStock: number; minimumStock: number }) => 
+          lowStockItems: inventory.data?.filter((item: { currentStock: number; minimumStock: number }) =>
             item.currentStock <= item.minimumStock).length || 0,
-          totalValue: inventory.data?.reduce((sum: number, item: { currentStock: number; unitPrice: number }) => 
+          totalValue: inventory.data?.reduce((sum: number, item: { currentStock: number; unitPrice: number }) =>
             sum + (item.currentStock * item.unitPrice), 0) || 0
         },
         documents: {
@@ -348,7 +366,7 @@ export function ProjectDetails() {
           </div>
           <h3 className="text-lg font-semibold text-gray-900 mb-2">Project not found</h3>
           <p className="text-gray-500 mb-6">The project you're looking for doesn't exist or has been removed.</p>
-          <Button 
+          <Button
             onClick={() => navigate('/projects')}
             className="h-10 bg-gray-900 hover:bg-gray-800 text-white rounded-lg"
           >
@@ -392,14 +410,14 @@ export function ProjectDetails() {
               )}>
                 <Building2 className="h-7 w-7 text-white" />
               </div>
-              
+
               <div className="min-w-0">
                 <div className="flex items-center gap-3 mb-2 flex-wrap">
                   <h1 className="text-2xl font-bold text-gray-900 font-heading">
                     {project.name}
                   </h1>
-                  <Badge 
-                    variant="outline" 
+                  <Badge
+                    variant="outline"
                     className={cn(
                       "border",
                       statusColors.bg,
@@ -414,7 +432,7 @@ export function ProjectDetails() {
                     {project.type}
                   </Badge>
                 </div>
-                
+
                 <div className="flex items-center gap-4 text-sm text-gray-500 mb-3 flex-wrap">
                   <span className="flex items-center gap-1.5">
                     <FolderKanban className="h-4 w-4" />
@@ -534,7 +552,7 @@ export function ProjectDetails() {
                   className="space-y-6"
                 >
                   {/* Alert Section */}
-                  {((overview?.inventory.lowStockItems || 0) > 0 || 
+                  {((overview?.inventory.lowStockItems || 0) > 0 ||
                     (can(Permissions.VIEW_BUDGET) && (overview?.finance.utilizationPercentage || 0) > 90) ||
                     (overview?.procurement.pendingRequests || 0) > 5) && (
                     <Card className="border-amber-200 bg-amber-50">
@@ -618,30 +636,30 @@ export function ProjectDetails() {
                   {/* Key Metrics */}
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                     {[
-                      { 
-                        title: 'Team Size', 
+                      {
+                        title: 'Team Size',
                         value: project.team?.length || 0,
                         subtitle: 'Active members',
                         icon: Users,
                         onClick: () => handleTabChange('team')
                       },
-                      { 
-                        title: 'Project Progress', 
+                      {
+                        title: 'Project Progress',
                         value: `${overview?.timeline.overallProgress?.toFixed(0) || 0}%`,
                         subtitle: `${overview?.timeline.completedStages || 0} of ${overview?.timeline.totalStages || 0} stages`,
                         icon: TrendingUp,
                         onClick: () => handleTabChange('timeline')
                       },
-                      { 
-                        title: 'Budget Utilization', 
+                      {
+                        title: 'Budget Utilization',
                         value: `${overview?.finance.utilizationPercentage?.toFixed(0) || 0}%`,
                         subtitle: formatAmount(overview?.finance.remainingBudget || 0) + ' remaining',
                         icon: DollarSign,
                         onClick: () => handleTabChange('finance'),
                         permission: Permissions.VIEW_BUDGET
                       },
-                      { 
-                        title: 'Procurement', 
+                      {
+                        title: 'Procurement',
                         value: overview?.procurement.materialRequests || 0,
                         subtitle: `${overview?.procurement.pendingRequests || 0} pending`,
                         icon: Package,
@@ -741,9 +759,9 @@ export function ProjectDetails() {
                           </p>
                         )}
 
-                        <Button 
-                          variant="outline" 
-                          className="w-full border-gray-200" 
+                        <Button
+                          variant="outline"
+                          className="w-full border-gray-200"
                           onClick={() => handleTabChange('timeline')}
                         >
                           {(overview?.timeline.stages.length || 0) > 5
@@ -954,6 +972,7 @@ export function ProjectDetails() {
                                 <TableHead>Role</TableHead>
                                 <TableHead>Invited</TableHead>
                                 <TableHead>Status</TableHead>
+                                <TableHead className="text-right">Actions</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -968,6 +987,17 @@ export function ProjectDetails() {
                                     <Badge variant={invite.status === 'pending' ? 'default' : 'secondary'}>
                                       {invite.status}
                                     </Badge>
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => cancelInvite(invite)}
+                                      className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                                    >
+                                      <Trash2 className="mr-1.5 h-4 w-4" />
+                                      Cancel invite
+                                    </Button>
                                   </TableCell>
                                 </TableRow>
                               ))}
@@ -1061,7 +1091,7 @@ function MetricCard({ metric, index }: { metric: any; index: number }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05 }}
     >
-      <Card 
+      <Card
         className="border-gray-200 hover:border-gray-300 transition-colors cursor-pointer"
         onClick={metric.onClick}
       >

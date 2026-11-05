@@ -11,15 +11,16 @@ import {
 import { Input } from '@/components/ui/input';
 import { authApi } from '@/lib/auth-api';
 import { projectApi, type ProjectInvitationDetails } from '@/lib/project-api';
+import { companiesApi, type CompanyInvitationDetails } from '@/lib/companies-api';
 import { useAuth } from '@/contexts/AuthContext';
 import { humanizeLabel } from '@/lib/utils';
 import { getErrorMessage } from '@/utils/error-handler';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { 
-  Upload, 
-  X, 
-  ArrowRight, 
-  Users, 
+import {
+  Upload,
+  X,
+  ArrowRight,
+  Users,
   Mail,
   Lock,
   User,
@@ -57,6 +58,7 @@ export function Register() {
   const { signIn } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [invite, setInvite] = useState<ProjectInvitationDetails | null>(null);
+  const [companyInvite, setCompanyInvite] = useState<CompanyInvitationDetails | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
   const [profilePicture, setProfilePicture] = useState<File | null>(null);
@@ -90,7 +92,37 @@ export function Register() {
     };
   }, [invitationToken, form]);
 
-  const acceptPath = invitationToken ? `/projects/invitation/accept/${invitationToken}` : null;
+  // A company invitation: check the link before the form is filled, and lock the invited email
+  useEffect(() => {
+    if (!companyInvitationToken) return;
+    let cancelled = false;
+    companiesApi
+      .getInvitationDetails(companyInvitationToken)
+      .then((details) => {
+        if (cancelled) return;
+        setCompanyInvite(details);
+        form.setValue('email', details.email);
+      })
+      .catch((error) => {
+        if (!cancelled) setInviteError(getErrorMessage(error, 'This invitation is invalid or has expired.'));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyInvitationToken, form]);
+
+  // The invitation shown on the page (project or company)
+  const shownInvite = invite
+    ? { email: invite.email, role: invite.role, place: invite.projectName, accountExists: invite.accountExists }
+    : companyInvite
+      ? { email: companyInvite.email, role: companyInvite.role, place: companyInvite.companyName, accountExists: companyInvite.accountExists }
+      : null;
+
+  const acceptPath = invitationToken
+    ? `/projects/invitation/accept/${invitationToken}`
+    : companyInvitationToken
+      ? `/company-invitation/${companyInvitationToken}`
+      : null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -134,13 +166,13 @@ export function Register() {
         return;
       } else if (companyInvitationToken) {
         await authApi.registerWithCompanyInvitation({
-          email: data.email,
+          email: companyInvite?.email ?? data.email,
           password: data.password,
           fullName: data.fullName,
           companyInvitationToken,
         });
         toast.success('Account created. Welcome to the team!');
-        await signIn(data.email, data.password, '/dashboard');
+        await signIn(companyInvite?.email ?? data.email, data.password, '/dashboard');
         return;
       } else {
         await authApi.register({
@@ -150,7 +182,7 @@ export function Register() {
           profilePicture: profilePicture || undefined,
         });
       }
-      
+
       setIsSuccess(true);
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to create account'));
@@ -179,8 +211,8 @@ export function Register() {
         <div>
           <p className="font-medium text-blue-900 text-sm">You've been invited!</p>
           <p className="text-sm text-blue-700 mt-0.5">
-            {invite
-              ? <>Create your account to join <span className="font-medium">{invite.projectName}</span> as {humanizeLabel(invite.role)}.</>
+            {shownInvite
+              ? <>Create your account to join <span className="font-medium">{shownInvite.place}</span> as {humanizeLabel(shownInvite.role)}.</>
               : 'Complete your registration to join the team.'}
           </p>
         </div>
@@ -193,7 +225,7 @@ export function Register() {
       {/* Left Column - Branding */}
       <div className="hidden lg:flex lg:w-1/2 bg-gray-900 relative overflow-hidden">
         {/* Subtle grid pattern */}
-        <div 
+        <div
           className="absolute inset-0 opacity-[0.03]"
           style={{
             backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
@@ -321,17 +353,17 @@ export function Register() {
                   </p>
                 </div>
 
-                {(companyInvitationToken || invite) && <InvitationBanner />}
+                {shownInvite && <InvitationBanner />}
 
                 {inviteError && (
                   <div className="mb-6 rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
-                    {inviteError} Ask the project owner to send you a new invitation.
+                    {inviteError}
                   </div>
                 )}
 
-                {invite?.accountExists && acceptPath && (
+                {shownInvite?.accountExists && acceptPath && (
                   <div className="mb-6 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
-                    <p>An account for {invite.email} already exists.</p>
+                    <p>An account for {shownInvite.email} already exists.</p>
                     <Button
                       type="button"
                       className="mt-3 h-10 w-full rounded-lg bg-gray-900 text-white hover:bg-gray-800"
@@ -355,10 +387,10 @@ export function Register() {
                           <FormControl>
                             <div className="relative">
                               <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                              <Input 
-                                placeholder="John Doe" 
+                              <Input
+                                placeholder="Byishimo Olivier"
                                 className="pl-10 h-11 bg-white border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-900/10 focus:border-gray-900"
-                                {...field} 
+                                {...field}
                               />
                             </div>
                           </FormControl>
@@ -378,11 +410,11 @@ export function Register() {
                           <FormControl>
                             <div className="relative">
                               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                              <Input 
-                                placeholder="name@example.com" 
+                              <Input
+                                placeholder="name@example.com"
                                 className="pl-10 h-11 bg-white border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-900/10 focus:border-gray-900 read-only:bg-gray-50 read-only:text-gray-600"
-                                readOnly={!!invite}
-                                {...field} 
+                                readOnly={!!shownInvite}
+                                {...field}
                               />
                             </div>
                           </FormControl>
@@ -402,11 +434,11 @@ export function Register() {
                           <FormControl>
                             <div className="relative">
                               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                              <Input 
-                                type="password" 
+                              <Input
+                                type="password"
                                 placeholder="Create a strong password"
                                 className="pl-10 h-11 bg-white border-gray-200 rounded-lg focus:ring-2 focus:ring-gray-900/10 focus:border-gray-900"
-                                {...field} 
+                                {...field}
                               />
                             </div>
                           </FormControl>
@@ -464,7 +496,7 @@ export function Register() {
                     <Button
                       type="submit"
                       className="w-full h-11 bg-gray-900 hover:bg-gray-800 text-white rounded-lg font-medium"
-                      disabled={isLoading || !!inviteError || !!invite?.accountExists}
+                      disabled={isLoading || !!inviteError || !!shownInvite?.accountExists}
                     >
                       {isLoading ? (
                         <>

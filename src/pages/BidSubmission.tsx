@@ -312,13 +312,6 @@ export function BidSubmission() {
             financialDocs.length > 0
               ? financialDocs.map((docData) => docData.file)
               : undefined,
-          documentMetadata:
-            financialDocs.length > 0
-              ? financialDocs.map((doc) => ({
-                  documentType: doc.documentType,
-                  description: doc.description || "",
-                }))
-              : undefined,
         },
         otherDocuments: otherDocs.length > 0 ? otherDocs : undefined,
       };
