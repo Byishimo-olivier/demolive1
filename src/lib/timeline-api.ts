@@ -17,8 +17,33 @@ export interface TimelineApproval {
   comment?: string;
 }
 
+// One progress update: how far the activity got, and when and by whom
+export interface ProgressEntry {
+  progressPercentage: number;
+  status: string;
+  note?: string;
+  date: string;
+  by?: string;
+  byName?: string;
+}
+
+// When the progress was last updated and by whom (on a parent: its latest updated child)
+export interface ProgressStamp {
+  progressUpdatedAt?: string;
+  progressUpdatedByName?: string;
+  progressHistory?: ProgressEntry[];
+}
+
+export interface ItemProgressRequest {
+  subStageId?: string;
+  taskId?: string;
+  progressPercentage: number;
+  status?: string;
+  note?: string;
+}
+
 // Fields shared by sub-stages and tasks
-export interface WorkItem {
+export interface WorkItem extends ProgressStamp {
   _id: string;
   name: string;
   wbsCode?: string;
@@ -84,7 +109,7 @@ export interface StageTemplate {
   subStages: { name: string; tasks?: string[] }[];
 }
 
-export interface ProjectStage {
+export interface ProjectStage extends ProgressStamp {
   _id: string;
   projectId: string;
   stage: string;
@@ -393,6 +418,14 @@ export const timelineApi = {
   createTask: async (stageId: string, subStageId: string, data: TaskRequest) => {
     const response = await api.post<StageResponse>(`/timeline/project-stage/${stageId}/sub-stages/${subStageId}/tasks`, data, {
       requiresPermission: Permissions.UPDATE_PROJECT_STAGE
+    });
+    return response.data;
+  },
+
+  /** Update the progress of a stage, sub-stage or task; the date and who did it are recorded */
+  updateItemProgress: async (stageId: string, data: ItemProgressRequest) => {
+    const response = await api.patch<StageResponse>(`/timeline/project-stage/${stageId}/progress`, data, {
+      requiresPermission: Permissions.UPDATE_PROGRESS_TRACKING,
     });
     return response.data;
   },

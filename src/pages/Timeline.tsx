@@ -41,6 +41,7 @@ import {
   type ProjectBudgetInfo,
 } from '@/components/timeline/timeline-utils';
 import { ApproversDialog } from '@/components/timeline/ApproversDialog';
+import { MdApprovalsButton } from '@/components/approvals/MdApprovals';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { TimelineLockActions, TimelineLockStatus } from '@/components/timeline/TimelineLockBanner';
@@ -204,6 +205,8 @@ export function Timeline() {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            {/* Who approves and locks the timeline (and the project's other MD approvals) */}
+            <MdApprovalsButton projectId={currentProject._id} />
             {access.canManageApprovers && (
               <Button variant="outline" onClick={() => setApproversOpen(true)} className="border-gray-200">
                 <ShieldCheck className="mr-2 h-4 w-4" />
@@ -444,7 +447,7 @@ export function Timeline() {
 
         {/* Schedule: every activity in one table, like a programme sheet */}
         <TabsContent value="schedule" className="mt-0">
-          <ScheduleTable stages={stages} projectName={currentProject.name} />
+          <ScheduleTable stages={stages} projectName={currentProject.name} onStageUpdated={handleStageUpdated} />
         </TabsContent>
 
         {/* Stages Tab */}

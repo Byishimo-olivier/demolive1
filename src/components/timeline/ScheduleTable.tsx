@@ -1,15 +1,20 @@
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
-import { Download } from 'lucide-react';
+import { Download, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { personName, type ProjectStage } from '@/lib/timeline-api';
+import { personName, type ProgressEntry, type ProjectStage } from '@/lib/timeline-api';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { Permissions } from '@/constants/permissions';
 import { plannedDurationDays, scheduleState } from './timeline-utils';
+import { UpdateProgressDialog, stampText, statusTone, type ProgressTarget } from './UpdateProgressDialog';
 
 interface Props {
   stages: ProjectStage[];
   projectName: string;
+  // Called with the saved stage after a progress update
+  onStageUpdated?: (stage: ProjectStage) => void;
 }
 
 interface ScheduleRow {
@@ -25,6 +30,16 @@ interface ScheduleRow {
   predecessors: string;
   owner: string;
   status: string;
+  progress: number;
+  // Where the activity sits, for updating it
+  stageId: string;
+  subStageId?: string;
+  taskId?: string;
+  // False when its progress comes from its tasks
+  updatable: boolean;
+  progressUpdatedAt?: string;
+  progressUpdatedByName?: string;
+  progressHistory?: ProgressEntry[];
 }
 
 // One colour per workstream, like the colour bands of a programme sheet
@@ -61,7 +76,10 @@ function criticalPathStart(rows: ScheduleRow[]): ScheduleRow | null {
 }
 
 /** The timeline as a programme sheet: every activity with its dates, duration, predecessors and owner */
-export function ScheduleTable({ stages, projectName }: Props) {
+export function ScheduleTable({ stages, projectName, onStageUpdated }: Props) {
+  const { can } = useAuth();
+  const canUpdate = !!onStageUpdated && can(Permissions.UPDATE_PROGRESS_TRACKING);
+  const [target, setTarget] = useState<ProgressTarget | null>(null);
   const rows = useMemo<ScheduleRow[]>(() => {
     const list: ScheduleRow[] = [];
     for (const stage of stages) {
@@ -79,6 +97,12 @@ export function ScheduleTable({ stages, projectName }: Props) {
           predecessors: '',
           owner: personName(stage.responsiblePerson, stage.responsiblePersonName),
           status: stage.status,
+          progress: stage.progressPercentage ?? 0,
+          stageId: stage._id,
+          updatable: true,
+          progressUpdatedAt: stage.progressUpdatedAt,
+          progressUpdatedByName: stage.progressUpdatedByName,
+          progressHistory: stage.progressHistory,
         });
       }
       // Each sub-stage is an activity of the stage; its tasks follow it
@@ -96,6 +120,14 @@ export function ScheduleTable({ stages, projectName }: Props) {
             predecessors: item.predecessors ?? '',
             owner: personName(item.responsiblePerson, item.responsiblePersonName),
             status: item.status,
+            progress: item.progressPercentage ?? 0,
+            stageId: stage._id,
+            subStageId: sub._id,
+            taskId: isTask ? item._id : undefined,
+            updatable: isTask || !(sub.tasks ?? []).length,
+            progressUpdatedAt: item.progressUpdatedAt,
+            progressUpdatedByName: item.progressUpdatedByName,
+            progressHistory: item.progressHistory,
           });
         }
       }
@@ -142,7 +174,7 @@ export function ScheduleTable({ stages, projectName }: Props) {
         criticalText,
       ],
       [],
-      ['ID', 'Workstream', 'Activity', 'Start', 'Finish', 'Duration', 'Predecessor', 'Owner'],
+      ['ID', 'Workstream', 'Activity', 'Start', 'Finish', 'Duration', 'Predecessor', 'Owner', 'Progress %', 'Status', 'Progress updated', 'Updated by'],
       ...rows.map((r) => [
         r.id,
         r.isTask ? '' : r.workstream,
@@ -152,9 +184,13 @@ export function ScheduleTable({ stages, projectName }: Props) {
         r.duration,
         r.predecessors,
         r.owner,
+        r.progress,
+        r.status,
+        r.progressUpdatedAt ? format(new Date(r.progressUpdatedAt), 'MM/dd/yyyy HH:mm') : '',
+        r.progressUpdatedByName ?? '',
       ]),
     ]);
-    sheet['!cols'] = [6, 26, 70, 12, 12, 10, 12, 24].map((wch) => ({ wch }));
+    sheet['!cols'] = [6, 26, 70, 12, 12, 10, 12, 24, 11, 12, 18, 24].map((wch) => ({ wch }));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, sheet, 'Schedule');
     XLSX.writeFile(workbook, `Schedule_${projectName.replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '_')}.xlsx`);
@@ -179,7 +215,7 @@ export function ScheduleTable({ stages, projectName }: Props) {
 
       <div className="overflow-x-auto rounded-lg border border-gray-300 bg-white">
         {/* Project start, finish, duration and critical path start */}
-        <div className="grid min-w-[860px] grid-cols-[auto_1fr_auto_1fr_auto_1fr_auto_1.4fr] border-b border-gray-300 text-sm">
+        <div className="grid min-w-[1180px] grid-cols-[auto_1fr_auto_1fr_auto_1fr_auto_1.4fr] border-b border-gray-300 text-sm">
           <InfoLabel>Project Start</InfoLabel>
           <InfoValue>{span ? show(span.start) : '—'}</InfoValue>
           <InfoLabel>Project Finish</InfoLabel>
@@ -190,12 +226,12 @@ export function ScheduleTable({ stages, projectName }: Props) {
           <InfoValue last>{criticalText}</InfoValue>
         </div>
 
-        <table className="w-full min-w-[860px] border-collapse text-sm">
+        <table className="w-full min-w-[1180px] border-collapse text-sm">
           <thead>
             <tr style={{ backgroundColor: NAVY }}>
-              {['ID', 'Workstream', 'Activity', 'Start', 'Finish', 'Duration', 'Predecessor', 'Owner'].map((h) => (
+              {['ID', 'Workstream', 'Activity', 'Start', 'Finish', 'Duration', 'Predecessor', 'Owner', 'Progress', 'Last updated', ...(canUpdate ? [''] : [])].map((h, i) => (
                 <th
-                  key={h}
+                  key={h || `col-${i}`}
                   className="whitespace-nowrap border border-gray-400 px-3 py-2 text-center text-xs font-semibold text-white"
                 >
                   {h}
@@ -235,12 +271,73 @@ export function ScheduleTable({ stages, projectName }: Props) {
                   <td className="whitespace-nowrap border border-gray-300 px-3 py-2 text-right text-gray-900">{row.duration}</td>
                   <td className="whitespace-nowrap border border-gray-300 px-3 py-2 text-gray-800">{row.predecessors}</td>
                   <td className="min-w-[150px] border border-gray-300 px-3 py-2 text-gray-800">{row.owner}</td>
+                  <td className="min-w-[130px] border border-gray-300 px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200">
+                        <div
+                          className={cn('h-full rounded-full', row.progress >= 100 ? 'bg-emerald-500' : 'bg-orange-500')}
+                          style={{ width: `${Math.min(100, row.progress)}%` }}
+                        />
+                      </div>
+                      <span className="w-9 text-right text-xs font-semibold text-gray-900">{row.progress}%</span>
+                    </div>
+                    <span className={cn('mt-1 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium', statusTone(row.status))}>
+                      {row.status}
+                    </span>
+                  </td>
+                  <td className="min-w-[150px] border border-gray-300 px-3 py-2 text-xs">
+                    {row.progressUpdatedAt ? (
+                      <>
+                        <span className="block whitespace-nowrap text-gray-900">{stampText(row.progressUpdatedAt)}</span>
+                        {row.progressUpdatedByName && <span className="block text-gray-500">{row.progressUpdatedByName}</span>}
+                      </>
+                    ) : (
+                      <span className="text-gray-400">Not updated yet</span>
+                    )}
+                  </td>
+                  {canUpdate && (
+                    <td className="whitespace-nowrap border border-gray-300 px-2 py-2 text-center">
+                      {row.updatable ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 border-gray-200 px-2 text-xs"
+                          onClick={() =>
+                            setTarget({
+                              stageId: row.stageId,
+                              subStageId: row.subStageId,
+                              taskId: row.taskId,
+                              name: row.isTask ? row.activity : `${row.workstream} · ${row.activity}`,
+                              progress: row.progress,
+                              status: row.status,
+                              updatedAt: row.progressUpdatedAt,
+                              updatedByName: row.progressUpdatedByName,
+                              history: row.progressHistory,
+                            })
+                          }
+                        >
+                          <TrendingUp className="mr-1 h-3.5 w-3.5" />
+                          Update
+                        </Button>
+                      ) : (
+                        <span className="text-[11px] text-gray-400" title="Its progress comes from its tasks">
+                          From tasks
+                        </span>
+                      )}
+                    </td>
+                  )}
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+
+      <UpdateProgressDialog
+        target={target}
+        onOpenChange={(open) => !open && setTarget(null)}
+        onSaved={(stage) => onStageUpdated?.(stage)}
+      />
     </div>
   );
 }

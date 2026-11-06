@@ -22,6 +22,31 @@ export interface ProjectCreateRequest {
   team: string[];
 }
 
+export interface ClientDetailsRequest {
+  clientName?: string;
+  contactName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
+  clientAddress?: string;
+  clientTin?: string;
+}
+
+// Dates as YYYY-MM-DD; an empty date clears it
+export interface ContractRequest {
+  reference?: string;
+  title?: string;
+  signedDate?: string;
+  startDate?: string;
+  endDate?: string;
+  amount: number;
+  advancePayment?: number;
+  retentionPercent?: number;
+  paymentTerms?: string;
+  scope?: string;
+  notes?: string;
+  removeDocument?: boolean;
+}
+
 interface ApiEnvelope<T> {
   success: boolean;
   message: string;
@@ -188,6 +213,29 @@ export const projectApi = {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+    });
+    return response.data;
+  },
+
+  /** Change the client's details (empty text clears a field) */
+  updateClient: async (id: string, data: ClientDetailsRequest): Promise<ProjectResponse> => {
+    const response = await api.patch<ProjectResponse>(`/projects/${id}`, data, {
+      requiresPermission: Permissions.UPDATE_PROJECT,
+    });
+    return response.data;
+  },
+
+  /** Create or update the contract with the client; a file is attached as the signed contract */
+  saveContract: async (id: string, data: ContractRequest, file?: File | null): Promise<ProjectResponse> => {
+    const formData = new FormData();
+    Object.entries(data).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      formData.append(key, String(value));
+    });
+    if (file) formData.append('file', file);
+    const response = await api.put<ProjectResponse>(`/projects/${id}/contract`, formData, {
+      requiresPermission: Permissions.UPDATE_PROJECT,
+      headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response.data;
   },

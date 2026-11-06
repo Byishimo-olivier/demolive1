@@ -188,6 +188,11 @@ export type Project = {
   contactName?: string;
   contactPhone?: string;
   contactEmail?: string;
+  clientAddress?: string;
+  // Client's tax identification number
+  clientTin?: string;
+  // The contract signed with the client (none until it is recorded)
+  contract?: ProjectContract;
   createdBy: string;
   updatedBy: string;
   documents?: {
@@ -198,6 +203,28 @@ export type Project = {
   updatedAt: string;
   __v: number;
 };
+
+/** The contract signed with the client for a project */
+export interface ProjectContract {
+  reference?: string;
+  title?: string;
+  signedDate?: string;
+  startDate?: string;
+  endDate?: string;
+  amount: number;
+  advancePayment?: number;
+  // Share of each payment held back until handover
+  retentionPercent?: number;
+  paymentTerms?: string;
+  scope?: string;
+  notes?: string;
+  documentUrl?: string;
+  documentName?: string;
+  createdByName?: string;
+  createdAt?: string;
+  updatedByName?: string;
+  updatedAt?: string;
+}
 
 export type ProjectFormData = {
   name: string;

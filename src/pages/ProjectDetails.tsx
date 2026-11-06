@@ -47,7 +47,6 @@ import { financeApi } from '../lib/finance-api';
 import { timelineApi, type ProjectStage } from '../lib/timeline-api';
 import { overallTimelineProgress, plannedDurationDays, stageProgress } from '../components/timeline/timeline-utils';
 import { ApprovalBadge } from '../components/timeline/TimelineApproval';
-import { MdApprovalsButton } from '../components/approvals/MdApprovals';
 import { ProjectSummaryPanel } from '../components/projects/ProjectSummaryPanel';
 import { ProjectDashboard } from '@/components/dashboard/ProjectDashboard';
 import { ExportMenu } from '@/components/dashboard/ExportMenu';
@@ -468,7 +467,6 @@ export function ProjectDetails() {
 
             {/* Right side - Actions */}
             <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-              {projectId && <MdApprovalsButton projectId={projectId} />}
               <Can permission={Permissions.UPDATE_PROJECT}>
                 <Button
                   variant="outline"
@@ -608,6 +606,30 @@ export function ProjectDetails() {
                   {/* Client, contract, total income, total expenses, profit / loss and timeline */}
                   <ProjectSummaryPanel
                     project={project}
+                    onProjectChanged={(updated) => {
+                      // Show the new client / contract at once, then reload the full project quietly
+                      const merged = {
+                        ...project,
+                        clientName: updated.clientName,
+                        clientTin: updated.clientTin,
+                        clientAddress: updated.clientAddress,
+                        contactName: updated.contactName,
+                        contactPhone: updated.contactPhone,
+                        contactEmail: updated.contactEmail,
+                        contractAmount: updated.contractAmount,
+                        contract: updated.contract,
+                        updatedAt: updated.updatedAt,
+                      };
+                      setProject(merged);
+                      projectContextSetProject(merged);
+                      projectApi
+                        .getProject(project._id)
+                        .then((res) => {
+                          setProject(res.data);
+                          projectContextSetProject(res.data);
+                        })
+                        .catch(() => undefined);
+                    }}
                     timeline={{ startDate: overview?.timeline.startDate || null, endDate: overview?.timeline.endDate || null }}
                   />
 

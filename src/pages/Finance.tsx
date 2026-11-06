@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -45,7 +46,15 @@ import { describeRange, hasRange, rangeParams, type DateRange } from '@/lib/date
 export function Finance() {
   const { formatAmount } = useCurrency();
   const { currentProject } = useProject();
-  const [activeTab, setActiveTab] = useState('overview');
+  // The open sub-tab lives in the URL (?section=invoices) so other pages can open it directly
+  const location = useLocation();
+  const navigate = useNavigate();
+  const activeTab = new URLSearchParams(location.search).get('section') || 'overview';
+  const setActiveTab = (value: string) => {
+    const params = new URLSearchParams(location.search);
+    params.set('section', value);
+    navigate(`${location.pathname}?${params.toString()}`, { replace: true });
+  };
   // Period for expenses, invoices and their totals (budget figures stay project-to-date)
   const [period, setPeriod] = useState<DateRange>({});
 
