@@ -10,6 +10,9 @@ const baseURL = import.meta.env.DEV
   ? ''
   : import.meta.env.VITE_BASE_URL || 'http://localhost:4000';
 const apiBaseURL = `${baseURL.replace(/\/$/, '')}/api/v1`;
+
+/** Address of a file the API serves (e.g. "/uploads/photo.jpg"); full addresses are kept as they are */
+export const apiFileUrl = (path: string) => (/^https?:\/\//i.test(path) ? path : `${baseURL.replace(/\/$/, '')}${path}`);
 const PROXY_URL = "https://api.ivainqueur.dev/nocors";
 //  const PROXY_URL = "http://localhost:3500/nocors";
 

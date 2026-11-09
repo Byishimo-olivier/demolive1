@@ -20,7 +20,7 @@ const MIN_RING = 6;
 
 /** Uploaded photos first (in their order), topped up with built-in ones to fill the ring. */
 export function landingGallery(uploaded: LandingImage[] | undefined): CarouselItem[] {
-  const own: CarouselItem[] = (uploaded ?? []).map((image) => ({
+  const own: CarouselItem[] = (uploaded ?? []).filter((image) => image.section === 'gallery').map((image) => ({
     src: image.url,
     alt: image.alt || image.label,
     label: image.label,

@@ -14,10 +14,11 @@ import { getErrorMessage } from '@/utils/error-handler';
 import { CompanyProfileSettings } from '../components/settings/CompanyProfileSettings';
 import { BidderProfileSettings } from '../components/settings/BidderProfileSettings';
 import { LandingImagesSettings } from '../components/settings/LandingImagesSettings';
-import { isPlatformAdmin } from '../lib/site-api';
+import { canManageLandingPage } from '../lib/site-api';
 
 export function Settings() {
-  const { user, activeProfile, organizationProfiles, updateUser } = useAuth();
+  const { user, activeProfile, organizationProfiles, updateUser, currentCompanyRole } = useAuth();
+  const showLandingPage = canManageLandingPage(user, currentCompanyRole);
   const [form, setForm] = useState({
     fullName: user?.fullName || '',
     email: user?.email || '',
@@ -107,7 +108,7 @@ export function Settings() {
           <TabsTrigger value="profile">Personal Profile</TabsTrigger>
           <TabsTrigger value="company">Company Profile</TabsTrigger>
           <TabsTrigger value="bidder">Bidder Profile</TabsTrigger>
-          {isPlatformAdmin(user) && <TabsTrigger value="landing">Landing Page</TabsTrigger>}
+          {showLandingPage && <TabsTrigger value="landing">Landing Page</TabsTrigger>}
         </TabsList>
         <TabsContent value="profile" className="space-y-6">
           <div className="grid gap-6">
@@ -247,7 +248,7 @@ export function Settings() {
         <TabsContent value="bidder">
           <BidderProfileSettings />
         </TabsContent>
-        {isPlatformAdmin(user) && (
+        {showLandingPage && (
           <TabsContent value="landing">
             <LandingImagesSettings />
           </TabsContent>

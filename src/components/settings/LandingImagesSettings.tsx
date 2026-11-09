@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'r
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { ArrowLeft, ArrowRight, ExternalLink, ImagePlus, Loader2, Trash2, Upload, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ExternalLink, ImagePlus, Loader2, RotateCcw, Trash2, Upload, X } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,7 @@ import {
   type LandingImage,
 } from '@/lib/site-api';
 import { getErrorMessage } from '@/utils/error-handler';
+import { LANDING_SECTIONS, uploadedFor, type LandingSectionKey, type LandingSlot } from '@/lib/landing-sections';
 
 const QUERY_KEY = ['landing-images'];
 
@@ -27,11 +28,14 @@ function checkFile(file: File): string | null {
   return null;
 }
 
-/** Platform admins choose the photos in the landing page's 3D gallery. */
+const NO_IMAGES: LandingImage[] = [];
+
+/** The home page's photos: the 3D gallery, and the photos of its other sections. */
 export function LandingImagesSettings() {
   const queryClient = useQueryClient();
-  const { data: images = [], isLoading } = useQuery({ queryKey: QUERY_KEY, queryFn: siteApi.listLandingImages });
+  const { data: all = NO_IMAGES, isLoading } = useQuery({ queryKey: QUERY_KEY, queryFn: siteApi.listLandingImages });
   const refresh = () => queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+  const images = all.filter((image) => image.section === 'gallery');
 
   const full = images.length >= LANDING_IMAGE_LIMIT;
 
@@ -42,7 +46,11 @@ export function LandingImagesSettings() {
       const previous = queryClient.getQueryData<LandingImage[]>(QUERY_KEY);
       if (previous) {
         const byId = new Map(previous.map((i) => [i._id, i]));
-        queryClient.setQueryData(QUERY_KEY, ids.map((id, order) => ({ ...byId.get(id)!, order })));
+        // Only the gallery is reordered; other sections' photos stay as they are
+        queryClient.setQueryData(QUERY_KEY, [
+          ...ids.map((id, order) => ({ ...byId.get(id)!, order })),
+          ...previous.filter((i) => i.section !== 'gallery'),
+        ]);
       }
       return { previous };
     },
@@ -130,7 +138,147 @@ export function LandingImagesSettings() {
           )}
         </CardContent>
       </Card>
+
+      <SectionPhotos images={all} loading={isLoading} onChanged={refresh} />
     </div>
+  );
+}
+
+/** One photo per place in the other sections; each falls back to its built-in photo */
+function SectionPhotos({ images, loading, onChanged }: { images: LandingImage[]; loading: boolean; onChanged: () => void }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Other sections of the home page</CardTitle>
+        <CardDescription>
+          Replace any photo below with your own. Use default puts the built-in photo back.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-8">
+        {loading ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+          </div>
+        ) : (
+          LANDING_SECTIONS.map((section) => (
+            <section key={section.section} aria-labelledby={`landing-${section.section}`}>
+              <h3 id={`landing-${section.section}`} className="font-heading text-base font-semibold text-gray-900">
+                {section.title}
+              </h3>
+              <p className="mb-3 text-sm text-gray-500">{section.description}</p>
+              <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {section.slots.map((slot) => (
+                  <SlotTile
+                    key={slot.slot}
+                    section={section.section}
+                    slot={slot}
+                    uploaded={uploadedFor(images, section.section, slot.slot)}
+                    onChanged={onChanged}
+                  />
+                ))}
+              </ul>
+            </section>
+          ))
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SlotTile({
+  section,
+  slot,
+  uploaded,
+  onChanged,
+}: {
+  section: LandingSectionKey;
+  slot: LandingSlot;
+  uploaded?: LandingImage;
+  onChanged: () => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+
+  const replace = useMutation({
+    mutationFn: (image: File) => siteApi.addLandingImage({ image, section, slot: slot.slot, label: slot.label }),
+    onSuccess: () => {
+      toast.success(`${slot.label}: photo replaced`);
+      onChanged();
+    },
+    onError: (error) => toast.error(getErrorMessage(error, 'Could not upload the photo')),
+  });
+
+  const reset = useMutation({
+    mutationFn: () => siteApi.removeLandingImage(uploaded!._id),
+    onSuccess: () => {
+      toast.success(`${slot.label}: back to the default photo`);
+      onChanged();
+    },
+    onError: (error) => toast.error(getErrorMessage(error, 'Could not reset the photo')),
+  });
+
+  const choose = (file?: File | null) => {
+    if (input.current) input.current.value = '';
+    if (!file) return;
+    const problem = checkFile(file);
+    if (problem) {
+      toast.error(problem);
+      return;
+    }
+    replace.mutate(file);
+  };
+
+  const busy = replace.isPending || reset.isPending;
+  const shapeHint = slot.shape === 'tall' ? 'Portrait photo works best' : 'Landscape photo works best';
+
+  return (
+    <li className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div className={`relative bg-gray-100 ${slot.shape === 'tall' ? 'aspect-[3/4]' : 'aspect-[4/3]'}`}>
+        <img
+          src={uploaded?.url ?? slot.fallback}
+          alt={uploaded?.alt || slot.fallbackAlt || slot.label}
+          loading="lazy"
+          className="h-full w-full object-cover"
+        />
+        <span
+          className={`absolute left-2 top-2 rounded-full px-2 py-0.5 text-xs font-medium ${
+            uploaded ? 'bg-emerald-600 text-white' : 'bg-white/90 text-gray-700'
+          }`}
+        >
+          {uploaded ? 'Your photo' : 'Default'}
+        </span>
+        {busy && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white/60">
+            <Loader2 className="h-6 w-6 animate-spin text-gray-600" />
+          </div>
+        )}
+      </div>
+      <div className="space-y-2 p-3">
+        <div>
+          <p className="text-sm font-medium text-gray-900">{slot.label}</p>
+          <p className="text-xs text-gray-500">{shapeHint}</p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <Button size="sm" variant="outline" className="h-8" disabled={busy} onClick={() => input.current?.click()}>
+            <Upload className="mr-1.5 h-3.5 w-3.5" />
+            Replace
+          </Button>
+          {uploaded && (
+            <Button size="sm" variant="ghost" className="h-8 text-gray-600" disabled={busy} onClick={() => reset.mutate()}>
+              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              Use default
+            </Button>
+          )}
+        </div>
+        <input
+          ref={input}
+          type="file"
+          accept={LANDING_IMAGE_TYPES.join(',')}
+          className="hidden"
+          aria-label={`Replace the ${slot.label} photo`}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => choose(e.target.files?.[0])}
+        />
+      </div>
+    </li>
   );
 }
 

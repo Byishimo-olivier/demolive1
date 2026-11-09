@@ -8,12 +8,11 @@ import { LandingNav } from '@/components/LandingNav';
 import { BrandLogo } from '@/components/BrandLogo';
 import { ImageCarousel3D } from '@/components/landing/3d/ImageCarousel3D';
 import { landingGallery } from '@/components/landing/3d/gallery';
+import { slotPhoto } from '@/lib/landing-sections';
 import { siteApi } from '@/lib/site-api';
 import { TiltCard, Depth } from '@/components/landing/3d/TiltCard';
 import { ScrollShowcase3D } from '@/components/landing/3d/ScrollShowcase3D';
 import { FlipCard } from '@/components/landing/3d/FlipCard';
-
-const IMG = '/images/landing';
 
 
 const stats = [
@@ -28,29 +27,25 @@ const features = [
     icon: Building2,
     title: 'Project Management',
     description: 'End-to-end oversight of infrastructure projects with real-time tracking and milestone management.',
-    image: `${IMG}/construction-site.webp`,
-    imageAlt: 'Construction workers on a building site',
+    slot: 'project-management',
   },
   {
     icon: BarChart3,
     title: 'Financial Control',
     description: 'Complete budget visibility with automated tracking, variance analysis, and forecasting tools.',
-    image: `${IMG}/finance-docs.webp`,
-    imageAlt: 'Financial documents being reviewed beside a laptop',
+    slot: 'financial-control',
   },
   {
     icon: FileText,
     title: 'Document Hub',
     description: 'Centralized document management with version control, approvals, and secure sharing.',
-    image: `${IMG}/engineer.webp`,
-    imageAlt: 'An engineer marking up technical drawings',
+    slot: 'document-hub',
   },
   {
     icon: Users,
     title: 'Team Collaboration',
     description: 'Streamlined communication across stakeholders with role-based access and notifications.',
-    image: `${IMG}/team-collab.webp`,
-    imageAlt: 'A team collaborating around a table with laptops',
+    slot: 'team-collaboration',
   },
 ];
 
@@ -60,24 +55,21 @@ const roles = [
     title: 'Built for Operations',
     footnote: 'Director of Operations',
     quote: 'Our platform is designed to transform how you manage your infrastructure portfolio with unmatched clarity.',
-    image: `${IMG}/site-team.webp`,
-    imageAlt: 'An operations team walking a construction site',
+    slot: 'operations',
   },
   {
     eyebrow: 'Data-Driven Approach',
     title: 'Built for Leadership',
     footnote: 'CEO & Execs',
     quote: 'Reduce project delays with a platform that understands infrastructure complexity without adding more complexity.',
-    image: `${IMG}/executive.webp`,
-    imageAlt: 'A business executive in a suit',
+    slot: 'leadership',
   },
   {
     eyebrow: 'Seamless Workflows',
     title: 'Built for Managers',
     footnote: 'Project Manager',
     quote: 'Everything you need to keep teams aligned and executing perfectly across multiple project phases.',
-    image: `${IMG}/presentation.webp`,
-    imageAlt: 'A manager presenting to a team in an office',
+    slot: 'managers',
   },
 ];
 
@@ -231,7 +223,7 @@ export function Landing() {
               From the site to the boardroom, see progress and spend the moment they change.
             </motion.p>
           </div>
-          <ScrollShowcase3D />
+          <ScrollShowcase3D main={slotPhoto(uploadedImages, 'showcase', 'main')} side={slotPhoto(uploadedImages, 'showcase', 'side')} />
         </div>
       </section>
 
@@ -264,8 +256,8 @@ export function Landing() {
                   <Depth z={20} className="relative p-3">
                     <div className="overflow-hidden rounded-xl">
                       <img
-                        src={feature.image}
-                        alt={feature.imageAlt}
+                        src={slotPhoto(uploadedImages, 'features', feature.slot).src}
+                        alt={slotPhoto(uploadedImages, 'features', feature.slot).alt}
                         loading="lazy"
                         decoding="async"
                         className="aspect-[16/8] w-full object-cover"
@@ -308,7 +300,7 @@ export function Landing() {
           </motion.p>
 
           <div className="mt-12 grid gap-8 lg:grid-cols-3">
-            {roles.map((role, index) => (
+            {roles.map(({ slot, ...role }, index) => (
               <motion.div
                 key={role.title}
                 initial={{ opacity: 0, y: 30 }}
@@ -316,7 +308,7 @@ export function Landing() {
                 viewport={{ once: true }}
                 transition={{ duration: 0.5, delay: index * 0.1 }}
               >
-                <FlipCard {...role} />
+                <FlipCard {...role} image={slotPhoto(uploadedImages, 'roles', slot).src} imageAlt={slotPhoto(uploadedImages, 'roles', slot).alt} />
               </motion.div>
             ))}
           </div>
@@ -328,7 +320,7 @@ export function Landing() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div ref={ctaRef} className="relative overflow-hidden rounded-3xl bg-gray-900 p-8 text-center sm:p-12 md:p-16">
             <motion.img
-              src={`${IMG}/skyline.webp`}
+              src={slotPhoto(uploadedImages, 'cta', 'background').src}
               alt=""
               aria-hidden
               loading="lazy"

@@ -23,6 +23,12 @@ export default defineConfig(({ mode }) => {
         changeOrigin: true,
         secure: true,
       },
+      // Files the API serves (uploaded photos, documents)
+      '/uploads': {
+        target: apiTarget,
+        changeOrigin: true,
+        secure: true,
+      },
     },
   },
 

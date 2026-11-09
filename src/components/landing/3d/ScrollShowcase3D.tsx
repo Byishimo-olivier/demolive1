@@ -2,11 +2,17 @@ import { useRef } from 'react';
 import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import { CheckCircle2, TrendingDown } from 'lucide-react';
 
+type Photo = { src: string; alt: string };
+
+// Built-in photos, used until others are chosen in Settings → Landing Page
+const DEFAULT_MAIN: Photo = { src: '/images/landing/laptop-charts.webp', alt: 'Project analytics dashboard on a laptop' };
+const DEFAULT_SIDE: Photo = { src: '/images/landing/site-team.webp', alt: 'Site engineers inspecting a construction project' };
+
 /**
  * A dashboard screenshot that starts tipped back in 3D and lifts upright as it
  * scrolls into view, with photo cards floating at different depths around it.
  */
-export function ScrollShowcase3D() {
+export function ScrollShowcase3D({ main = DEFAULT_MAIN, side = DEFAULT_SIDE }: { main?: Photo; side?: Photo }) {
   const ref = useRef<HTMLDivElement>(null);
   const reduceMotion = useReducedMotion();
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'center center'] });
@@ -36,8 +42,8 @@ export function ScrollShowcase3D() {
           </span>
         </div>
         <img
-          src="/images/landing/laptop-charts.webp"
-          alt="Project analytics dashboard on a laptop"
+          src={main.src}
+          alt={main.alt}
           loading="lazy"
           decoding="async"
           width={900}
@@ -52,8 +58,8 @@ export function ScrollShowcase3D() {
         className="absolute -left-4 top-[12%] hidden w-44 overflow-hidden rounded-xl border border-white bg-white shadow-elev-3 md:block lg:-left-16 lg:w-52"
       >
         <img
-          src="/images/landing/site-team.webp"
-          alt="Site engineers inspecting a construction project"
+          src={side.src}
+          alt={side.alt}
           loading="lazy"
           decoding="async"
           className="h-28 w-full object-cover lg:h-32"
