@@ -304,8 +304,26 @@ export const periodRange = (period: string, end: Date = new Date()): { from: Dat
   }
 };
 
-export const formatPeriodRange = (period: string, end: Date = new Date()): string => {
-  const { from, to } = periodRange(period, end);
+export const formatDateRange = (from: Date, to: Date): string => {
   if (from.toDateString() === to.toDateString()) return format(to, 'd MMM yyyy');
   return `${format(from, from.getFullYear() === to.getFullYear() ? 'd MMM' : 'd MMM yyyy')} – ${format(to, 'd MMM yyyy')}`;
+};
+
+export const formatPeriodRange = (period: string, end: Date = new Date()): string => {
+  const { from, to } = periodRange(period, end);
+  return formatDateRange(from, to);
+};
+
+// A YYYY-MM-DD (or ISO) date as a local calendar day
+export const calendarDay = (value: string) => new Date(`${value.slice(0, 10)}T00:00:00`);
+
+/** The days a progress report covers: its chosen dates, or (older reports) its fixed period */
+export const reportRange = (report: { periodStart?: string; periodEnd?: string; reportingPeriod?: string; createdAt: string }) =>
+  report.periodStart && report.periodEnd
+    ? { from: calendarDay(report.periodStart), to: calendarDay(report.periodEnd) }
+    : periodRange(report.reportingPeriod ?? '', new Date(report.createdAt));
+
+export const reportRangeText = (report: Parameters<typeof reportRange>[0]) => {
+  const { from, to } = reportRange(report);
+  return formatDateRange(from, to);
 };

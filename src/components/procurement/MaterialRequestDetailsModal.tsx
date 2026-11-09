@@ -1,4 +1,5 @@
 import { DecisionHistory } from './DecisionHistory';
+import { CATEGORY_LABELS } from '@/components/finance/expense-details';
 import { formatCurrency } from '@/lib/utils';
 import {
   Dialog,
@@ -80,7 +81,7 @@ export function MaterialRequestDetailsModal({
                     {request.materialDetails.map((item, idx) => (
                       <TableRow key={idx}>
                         <TableCell className="font-medium">{item.materialName}</TableCell>
-                        <TableCell className="capitalize">{item.category}</TableCell>
+                        <TableCell>{CATEGORY_LABELS[item.category] ?? item.category}</TableCell>
                         <TableCell>{item.quantity} {item.unit}</TableCell>
                         <TableCell>{formatCurrency(item.estimatedCost, 'RWF')}</TableCell>
                         <TableCell>{format(new Date(item.requiredByDate), 'PP')}</TableCell>

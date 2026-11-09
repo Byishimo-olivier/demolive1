@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { format } from 'date-fns';
+import { differenceInCalendarDays, format, startOfDay } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { Download, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -52,6 +52,13 @@ const asDate = (value: string) => new Date(`${dayOf(value)}T00:00:00`);
 // The sheet's date style: 06/05/2026
 const show = (value: string) => format(asDate(value), 'MM/dd/yyyy');
 const naturalCompare = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
+
+/** Days from today to the finish date: negative when overdue; null once the activity is completed */
+const remainingDays = (finish: string, status: string): number | null =>
+  status === 'Completed' ? null : differenceInCalendarDays(asDate(finish), startOfDay(new Date()));
+
+const remainingText = (days: number | null) =>
+  days === null ? 'Done' : days < 0 ? `${days} day${days === -1 ? '' : 's'}` : `${days} day${days === 1 ? '' : 's'}`;
 
 /**
  * The activity the critical path starts from: begin at the activity that finishes last and
@@ -174,7 +181,7 @@ export function ScheduleTable({ stages, projectName, onStageUpdated }: Props) {
         criticalText,
       ],
       [],
-      ['ID', 'Workstream', 'Activity', 'Start', 'Finish', 'Duration', 'Predecessor', 'Owner', 'Progress %', 'Status', 'Progress updated', 'Updated by'],
+      ['ID', 'Workstream', 'Activity', 'Start', 'Finish', 'Duration', 'Predecessor', 'Owner', 'Remaining days', 'Progress %', 'Status', 'Progress updated', 'Updated by'],
       ...rows.map((r) => [
         r.id,
         r.isTask ? '' : r.workstream,
@@ -184,13 +191,14 @@ export function ScheduleTable({ stages, projectName, onStageUpdated }: Props) {
         r.duration,
         r.predecessors,
         r.owner,
+        remainingDays(r.finish, r.status) ?? 'Done',
         r.progress,
         r.status,
         r.progressUpdatedAt ? format(new Date(r.progressUpdatedAt), 'MM/dd/yyyy HH:mm') : '',
         r.progressUpdatedByName ?? '',
       ]),
     ]);
-    sheet['!cols'] = [6, 26, 70, 12, 12, 10, 12, 24, 11, 12, 18, 24].map((wch) => ({ wch }));
+    sheet['!cols'] = [6, 26, 70, 12, 12, 10, 12, 24, 14, 11, 12, 18, 24].map((wch) => ({ wch }));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, sheet, 'Schedule');
     XLSX.writeFile(workbook, `Schedule_${projectName.replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '_')}.xlsx`);
@@ -215,7 +223,7 @@ export function ScheduleTable({ stages, projectName, onStageUpdated }: Props) {
 
       <div className="overflow-x-auto rounded-lg border border-gray-300 bg-white">
         {/* Project start, finish, duration and critical path start */}
-        <div className="grid min-w-[1180px] grid-cols-[auto_1fr_auto_1fr_auto_1fr_auto_1.4fr] border-b border-gray-300 text-sm">
+        <div className="grid min-w-[1280px] grid-cols-[auto_1fr_auto_1fr_auto_1fr_auto_1.4fr] border-b border-gray-300 text-sm">
           <InfoLabel>Project Start</InfoLabel>
           <InfoValue>{span ? show(span.start) : '—'}</InfoValue>
           <InfoLabel>Project Finish</InfoLabel>
@@ -226,10 +234,10 @@ export function ScheduleTable({ stages, projectName, onStageUpdated }: Props) {
           <InfoValue last>{criticalText}</InfoValue>
         </div>
 
-        <table className="w-full min-w-[1180px] border-collapse text-sm">
+        <table className="w-full min-w-[1280px] border-collapse text-sm">
           <thead>
             <tr style={{ backgroundColor: NAVY }}>
-              {['ID', 'Workstream', 'Activity', 'Start', 'Finish', 'Duration', 'Predecessor', 'Owner', 'Progress', 'Last updated', ...(canUpdate ? [''] : [])].map((h, i) => (
+              {['ID', 'Workstream', 'Activity', 'Start', 'Finish', 'Duration', 'Predecessor', 'Owner', 'Remaining', 'Progress', 'Last updated', ...(canUpdate ? [''] : [])].map((h, i) => (
                 <th
                   key={h || `col-${i}`}
                   className="whitespace-nowrap border border-gray-400 px-3 py-2 text-center text-xs font-semibold text-white"
@@ -271,6 +279,36 @@ export function ScheduleTable({ stages, projectName, onStageUpdated }: Props) {
                   <td className="whitespace-nowrap border border-gray-300 px-3 py-2 text-right text-gray-900">{row.duration}</td>
                   <td className="whitespace-nowrap border border-gray-300 px-3 py-2 text-gray-800">{row.predecessors}</td>
                   <td className="min-w-[150px] border border-gray-300 px-3 py-2 text-gray-800">{row.owner}</td>
+                  {(() => {
+                    const days = remainingDays(row.finish, row.status);
+                    return (
+                      <td
+                        className={cn(
+                          'whitespace-nowrap border border-gray-300 px-3 py-2 text-right',
+                          days === null
+                            ? 'text-emerald-700'
+                            : days < 0
+                              ? 'bg-red-50 font-semibold text-red-600'
+                              : days === 0
+                                ? 'font-medium text-amber-600'
+                                : 'text-gray-900'
+                        )}
+                        title={
+                          days === null
+                            ? 'Completed'
+                            : days < 0
+                              ? `${-days} day${days === -1 ? '' : 's'} past the finish date`
+                              : days === 0
+                                ? 'Due today'
+                                : `${days} day${days === 1 ? '' : 's'} until the finish date`
+                        }
+                      >
+                        {remainingText(days)}
+                        {days !== null && days < 0 && <span className="block text-[10px] font-medium uppercase tracking-wide">Overdue</span>}
+                        {days === 0 && <span className="block text-[10px] font-medium uppercase tracking-wide">Due today</span>}
+                      </td>
+                    );
+                  })()}
                   <td className="min-w-[130px] border border-gray-300 px-3 py-2">
                     <div className="flex items-center gap-2">
                       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200">

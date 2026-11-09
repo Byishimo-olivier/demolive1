@@ -52,6 +52,8 @@ export interface ReviewMaterialRequest {
   status: 'Approved' | 'Rejected';
   // Required when rejecting
   comment?: string;
+  // Other requests: the approved cost and category of each line (by its position)
+  lines?: { index: number; estimatedCost: number; category?: string }[];
 }
 
 export interface CreateMaterialRequestRequest {

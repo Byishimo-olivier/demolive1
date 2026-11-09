@@ -22,6 +22,8 @@ import { Can } from '../PermissionGate';
 import { Permissions } from '@/constants/permissions';
 import { getErrorMessage } from '@/utils/error-handler';
 import { MaterialRequestDetailsModal } from './MaterialRequestDetailsModal';
+import { ApproveServiceRequestDialog } from './ApproveServiceRequestDialog';
+import { CATEGORY_LABELS } from '@/components/finance/expense-details';
 
 interface Props {
   projectId: string;
@@ -37,6 +39,8 @@ export function MaterialRequestForm({ projectId, materialRequests, onSuccess, on
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string>(''); // Track which request is being deleted
   const [importOpen, setImportOpen] = useState(false);
+  // An other request being approved (its costs and categories can be corrected)
+  const [approveService, setApproveService] = useState<MaterialRequest | null>(null);
   const [review, setReview] = useState<{ request: MaterialRequest; decision: ReviewMaterialRequest['status'] } | null>(null);
   const [filter, setFilter] = useState<RequestStatus | 'All'>('All');
   const [typeFilter, setTypeFilter] = useState<RequestType | 'All'>('All');
@@ -88,10 +92,10 @@ export function MaterialRequestForm({ projectId, materialRequests, onSuccess, on
     toast.success(`${imported.length} material${imported.length === 1 ? '' : 's'} added to the request. Check them, then submit.`);
   };
 
-  const handleReview = async (data: { status: 'Approved' | 'Rejected'; comment?: string }) => {
-    if (!review) return;
+  const handleReview = async (data: ReviewMaterialRequest, target = review?.request) => {
+    if (!target) return;
     try {
-      const res = await procurementApi.reviewMaterialRequest(review.request._id, data);
+      const res = await procurementApi.reviewMaterialRequest(target._id, data);
       toast.success(res.message || `Request ${data.status.toLowerCase()}`);
       onSuccess();
     } catch (error) {
@@ -391,7 +395,7 @@ export function MaterialRequestForm({ projectId, materialRequests, onSuccess, on
                     <div
                       className={cn(
                         'grid gap-4 items-end',
-                        isOtherRequest ? 'grid-cols-[2fr_1fr_1fr_auto]' : 'grid-cols-6'
+                        isOtherRequest ? 'grid-cols-1 sm:grid-cols-[2fr_1fr_1fr_1fr_auto]' : 'grid-cols-6'
                       )}
                     >
                       <div>
@@ -402,6 +406,27 @@ export function MaterialRequestForm({ projectId, materialRequests, onSuccess, on
                           required
                         />
                       </div>
+                      {/* Other requests: the expense category the approved cost is booked under */}
+                      {isOtherRequest && (
+                        <div>
+                          <Label>Category</Label>
+                          <Select
+                            value={material.category}
+                            onValueChange={value => updateMaterialDetail(index, 'category', value as ExpenseCategory)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Object.values(ExpenseCategory).map(category => (
+                                <SelectItem key={category} value={category}>
+                                  {CATEGORY_LABELS[category] ?? category}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                       {/* Materials only: services have no quantity or unit */}
                       {!isOtherRequest && (
                         <>
@@ -552,9 +577,14 @@ export function MaterialRequestForm({ projectId, materialRequests, onSuccess, on
                       </span>
                       <span>{request.department}</span>
                       <span>
-                        {request.materialDetails.length} item{request.materialDetails.length === 1 ? '' : 's'} · est.{' '}
+                        {request.materialDetails.length} item{request.materialDetails.length === 1 ? '' : 's'} · {status === 'Approved' && request.requestType === 'Other' ? '' : 'est. '}
                         {total.toLocaleString()}
                       </span>
+                      {request.requestType === 'Other' && (
+                        <span>
+                          {[...new Set(request.materialDetails.map((m) => CATEGORY_LABELS[m.category] ?? m.category))].join(', ')}
+                        </span>
+                      )}
                       {request.requestDate && <span>{format(new Date(request.requestDate), 'MMM d, yyyy')}</span>}
                     </p>
                     {status !== 'Pending' && (
@@ -579,7 +609,11 @@ export function MaterialRequestForm({ projectId, materialRequests, onSuccess, on
                         <Button
                           size="sm"
                           className="h-8 bg-green-600 text-white hover:bg-green-700"
-                          onClick={() => setReview({ request, decision: 'Approved' })}
+                          onClick={() =>
+                            request.requestType === 'Other'
+                              ? setApproveService(request)
+                              : setReview({ request, decision: 'Approved' })
+                          }
                         >
                           <Check className="mr-1 h-4 w-4" />
                           Approve
@@ -664,6 +698,12 @@ export function MaterialRequestForm({ projectId, materialRequests, onSuccess, on
         title={review?.request.purpose || ''}
         decision={review?.decision || 'Approved'}
         onSubmit={handleReview}
+      />
+
+      <ApproveServiceRequestDialog
+        request={approveService}
+        onOpenChange={(isOpen) => !isOpen && setApproveService(null)}
+        onSubmit={(data) => handleReview(data, approveService ?? undefined)}
       />
 
       <MaterialRequestDetailsModal

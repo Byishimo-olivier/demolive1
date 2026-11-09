@@ -34,7 +34,8 @@ import {
   ProjectBudgetContext,
   TimelineLockContext,
   budgetUsage,
-  formatPeriodRange,
+  reportRange,
+  reportRangeText,
   overallTimelineProgress,
   scheduleState,
   useTimelineAccess,
@@ -47,7 +48,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { TimelineLockActions, TimelineLockStatus } from '@/components/timeline/TimelineLockBanner';
 import { Can } from '@/components/PermissionGate';
 import { Permissions } from '@/constants/permissions';
-import { format } from 'date-fns';
+import { differenceInCalendarDays, format } from 'date-fns';
 import { motion } from 'motion/react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -555,16 +556,26 @@ export function Timeline() {
                             <div>
                               <h4 className="font-semibold text-gray-900">Progress Report</h4>
                               <p className="text-sm text-gray-500">
-                                {formatPeriodRange(progress.reportingPeriod, new Date(progress.createdAt))}
+                                {reportRangeText(progress)}
                               </p>
                               <p className="text-xs text-gray-400">
                                 Created {format(new Date(progress.createdAt), 'MMM d, yyyy • h:mm a')}
                               </p>
                             </div>
                           </div>
-                          <Badge className={getReportingPeriodColor(progress.reportingPeriod)}>
-                            {progress.reportingPeriod}
-                          </Badge>
+                          {progress.reportingPeriod && !progress.periodStart ? (
+                            <Badge className={getReportingPeriodColor(progress.reportingPeriod)}>
+                              {progress.reportingPeriod}
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-orange-50 text-orange-700">
+                              {(() => {
+                                const { from, to } = reportRange(progress);
+                                const days = differenceInCalendarDays(to, from) + 1;
+                                return `${days} day${days === 1 ? '' : 's'}`;
+                              })()}
+                            </Badge>
+                          )}
                         </div>
                       </CardHeader>
                       <CardContent>

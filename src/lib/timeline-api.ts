@@ -186,7 +186,11 @@ export interface StageProgress {
 export interface ProgressTracking {
   _id: string;
   projectId: string;
-  reportingPeriod: string;
+  // Older reports: daily / weekly / monthly
+  reportingPeriod?: string;
+  // The dates the report covers
+  periodStart?: string;
+  periodEnd?: string;
   stageProgress: StageProgress[];
   comments?: string;
   supportingDocumentation?: string[];
@@ -221,7 +225,9 @@ export interface CreateProjectStageRequest {
 
 export interface CreateProgressTrackingRequest {
   projectId: string;
-  reportingPeriod: string;
+  reportingPeriod?: string;
+  periodStart?: string;
+  periodEnd?: string;
   stageProgress: StageProgress[];
   comments?: string;
   supportingDocumentation?: string[];

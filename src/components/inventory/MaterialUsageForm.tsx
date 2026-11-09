@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { MaterialUsageReportDialog } from './MaterialUsageReportDialog';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
@@ -46,7 +47,8 @@ export function MaterialUsageForm({ projectId, onSuccess }: Props) {
   const [isCreating, setIsCreating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingUsage, setIsLoadingUsage] = useState(true);
-  const [isLoadingReport, setIsLoadingReport] = useState(false);
+  // The report for chosen dates
+  const [reportOpen, setReportOpen] = useState(false);
   const [materialUsages, setMaterialUsages] = useState<MaterialUsage[]>([]);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [inventoryMap, setInventoryMap] = useState<Map<string, InventoryItem>>(new Map());
@@ -157,29 +159,6 @@ export function MaterialUsageForm({ projectId, onSuccess }: Props) {
       toast.error(getErrorMessage(error, 'Failed to record material usage'));
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const handleGenerateReport = async () => {
-    setIsLoadingReport(true);
-    try {
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setMonth(startDate.getMonth() - 1);
-
-      const report = await materialUsageApi.getMaterialUsageReport(projectId, {
-        startDate: startDate.toISOString().split('T')[0],
-        endDate: endDate.toISOString().split('T')[0],
-        sendEmail: false,
-      });
-
-      toast.success('Report generated successfully');
-      console.log('Material Usage Report:', report);
-    } catch (error: any) {
-      console.error('Error generating report:', error);
-      toast.error(getErrorMessage(error, 'Failed to generate report'));
-    } finally {
-      setIsLoadingReport(false);
     }
   };
 
@@ -300,15 +279,11 @@ export function MaterialUsageForm({ projectId, onSuccess }: Props) {
         <div className="flex gap-3">
           <Button
             variant="outline"
-            onClick={handleGenerateReport}
-            disabled={isLoadingReport || flattenedUsages.length === 0}
+            onClick={() => setReportOpen(true)}
+            disabled={flattenedUsages.length === 0}
             className="gap-2"
           >
-            {isLoadingReport ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4" />
-            )}
+            <Download className="h-4 w-4" />
             Generate Report
           </Button>
           {!isCreating && (
@@ -585,6 +560,7 @@ export function MaterialUsageForm({ projectId, onSuccess }: Props) {
           )}
         </CardContent>
       </Card>
+      <MaterialUsageReportDialog projectId={projectId} open={reportOpen} onOpenChange={setReportOpen} />
     </div>
   );
 }
