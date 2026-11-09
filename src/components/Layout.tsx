@@ -25,7 +25,9 @@ export function Layout() {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    // Come back here after signing in
+    const back = location.pathname + location.search;
+    return <Navigate to={`/login?redirect=${encodeURIComponent(back)}`} replace />;
   }
 
   // No company yet: register one first (settings and payment pages stay open)

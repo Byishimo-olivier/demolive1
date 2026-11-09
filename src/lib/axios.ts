@@ -2,6 +2,7 @@ import axios, { AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'ax
 import toast from 'react-hot-toast';
 import { permissionService } from '../services/permission.service';
 import { isEmailNotVerifiedError } from '../utils/error-handler';
+import { session } from './session';
 
 // Use Vite's same-origin dev proxy locally so browser requests do not need
 // cross-origin CORS permission. Production builds continue using VITE_BASE_URL.
@@ -48,7 +49,7 @@ const USE_PROXY = false;
 axiosInstance.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     // Add auth token
-    const token = localStorage.getItem('infrasoko_auth_token');
+    const token = session.getToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -179,24 +180,20 @@ axiosInstance.interceptors.response.use(
 
     // Handle 401 Unauthorized (token expired)
     if (error.response?.status === 401) {
-      // Clear all auth-related localStorage
-      localStorage.removeItem('infrasoko_auth_token');
-      localStorage.removeItem('infrasoko_user');
-      localStorage.removeItem('infrasoko_active_profile');
-      localStorage.removeItem('infrasoko_active_project');
-      localStorage.removeItem('infrasoko_user_companies');
-      localStorage.removeItem('infrasoko_user_projects');
-
       // The session ran out (a request made while signed in): sign in again and come back to
       // this page (e.g. the invitation being accepted). A wrong password at sign-in is not this.
       const sentToken = !!error.config?.headers?.Authorization;
       const path = window.location.pathname;
       const infoPage = ['/', '/features', '/pricing', '/contact', '/privacy-policy', '/terms-of-service', '/invite/register', '/forgot-password', '/reset-password'].includes(path)
         || path.startsWith('/verify-email');
+      if (sentToken) {
+        // The server no longer accepts this session: end it in every tab
+        session.clear('expired');
+      }
       if (sentToken && !path.startsWith('/login') && !infoPage) {
-        toast.error('Your session has expired. Please sign in again.');
+        toast.error('Your session has expired. Please sign in again.', { id: 'session-ended' });
         const back = window.location.pathname + window.location.search;
-        window.location.href = `/login?redirect=${encodeURIComponent(back)}`;
+        window.location.href = `/login?reason=expired&redirect=${encodeURIComponent(back)}`;
       }
       return Promise.reject(error);
     }
@@ -208,12 +205,7 @@ axiosInstance.interceptors.response.use(
       isEmailNotVerifiedError(error) &&
       !error.config?.url?.includes('/auth/')
     ) {
-      localStorage.removeItem('infrasoko_auth_token');
-      localStorage.removeItem('infrasoko_user');
-      localStorage.removeItem('infrasoko_active_profile');
-      localStorage.removeItem('infrasoko_active_project');
-      localStorage.removeItem('infrasoko_user_companies');
-      localStorage.removeItem('infrasoko_user_projects');
+      session.clear('manual');
       if (!window.location.pathname.startsWith('/login')) {
         window.location.href = '/login?verify=required';
       }

@@ -2,6 +2,7 @@ import { Navigate, Route, BrowserRouter as Router, Routes } from 'react-router-d
 import { Layout } from './components/Layout';
 // import { RoleGuard } from './components/RoleGuard';
 import { AuthProvider } from './contexts/AuthContext';
+import { SessionManager } from './components/session/SessionManager';
 import { ProjectProvider } from './contexts/ProjectContext';
 import { Contracts } from './pages/Contracts';
 import { Dashboard } from './pages/Dashboard';
@@ -50,6 +51,7 @@ function App() {
       <ProjectProvider>
       <AuthProvider>
         <Toaster position="top-right" />
+        <SessionManager />
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<Landing />} />

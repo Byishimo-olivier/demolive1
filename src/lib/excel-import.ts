@@ -25,6 +25,8 @@ export interface ImportField {
   // Minimum for numbers (default 0)
   min?: number;
   hint?: string;
+  // Extra check on a filled-in value (e.g. no future dates); return the problem or null
+  validate?: (value: string) => string | null;
 }
 
 export type ImportRow = Record<string, string>;
@@ -189,7 +191,7 @@ export const validateValue = (field: ImportField, value: string): string | null 
   }
   if (field.type === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(value)) return 'Not a date';
   if (field.type === 'select' && field.options && !field.options.some((o) => o.value === value)) return 'Not a known value';
-  return null;
+  return field.validate ? field.validate(value) : null;
 };
 
 export const rowErrors = (fields: ImportField[], row: ImportRow): Record<string, string> => {

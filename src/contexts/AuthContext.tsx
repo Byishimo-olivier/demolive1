@@ -8,6 +8,7 @@ import { permissionService, projectOnlyAllows } from '../services/permission.ser
 import { useProject } from './ProjectContext';
 import { projectAccessStore } from '../lib/project-access-store';
 import { projectAccessApi } from '../lib/project-access-api';
+import { session, type SignOutReason } from '../lib/session';
 import toast from 'react-hot-toast';
 
 // There is no personal workspace: everyone works in a company
@@ -27,12 +28,24 @@ type AuthContextType = {
   activeProfile: ActiveProfile | null;
   organizationProfiles: Company[];
   currentCompanyRole: string | null;
-  signIn: (email: string, password: string, redirectTo?: string) => Promise<void>;
-  signOut: () => Promise<void>;
+  signIn: (email: string, password: string, redirectTo?: string, remember?: boolean) => Promise<void>;
+  signOut: (options?: SignOutOptions) => Promise<void>;
   switchToProfile: (profileType: ProfileType, profileId: string) => Promise<void>;
   refreshUserCompanies: (activateCompanyId?: string) => Promise<void>;
   updateUser: (user: User) => void;
   can: (permission: string) => boolean;
+};
+
+export type SignOutOptions = {
+  /** Why the session ended; shown on the sign-in page. Defaults to 'manual'. */
+  reason?: SignOutReason;
+  /** Tell other tabs to sign out too. Defaults to true. */
+  broadcast?: boolean;
+};
+
+const SIGN_OUT_MESSAGES: Partial<Record<SignOutReason, string>> = {
+  idle: 'You were signed out after a period of inactivity.',
+  expired: 'Your session has expired. Please sign in again.',
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -86,67 +99,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [accessProjectId, activeProfile?.id]);
 
+  // Restore the session once, when the app opens
   useEffect(() => {
+    let cancelled = false;
     const initAuth = async () => {
       try {
-        const token = localStorage.getItem('infrasoko_auth_token');
-        if (!token) {
-          setLoading(false);
+        // A new tab of a non-remembered session: borrow it from an open tab
+        if (!session.getToken()) {
+          await session.borrowFromOpenTab();
+        }
+        const token = session.getToken();
+        if (!token) return;
+
+        if (session.isExpired(token)) {
+          session.clear('expired', false);
+          toast.error(SIGN_OUT_MESSAGES.expired!);
           return;
         }
 
-        // Validate JWT token
-        try {
-          const tokenPayload = JSON.parse(atob(token.split('.')[1]));
-          const currentTime = Date.now() / 1000;
-
-          if (tokenPayload.exp && tokenPayload.exp < currentTime) {
-            clearAuthData();
-            toast.error('Your session has expired. Please log in again.');
-            navigate('/login');
-            return;
-          }
-        } catch (parseError) {
-          console.error('Invalid token:', parseError);
-          clearAuthData();
-          navigate('/login');
+        const storedUser = session.getUser();
+        if (!storedUser) {
+          session.clear('manual', false);
           return;
         }
-
-        // Get user data
-        const userData = localStorage.getItem('infrasoko_user');
-        if (!userData) {
-          setLoading(false);
-          return;
-        }
-
-        const parsedUser = JSON.parse(userData);
-        setUser(parsedUser);
-
-        // Load companies and set active profile
-        await loadUserCompaniesAndProfile(parsedUser);
-
-        // Redirect if on auth pages
-        const authPages = ['/login', '/register', '/'];
-        if (authPages.includes(location.pathname)) {
-          navigate(redirectTarget() ?? '/dashboard');
-        }
+        if (cancelled) return;
+        setUser(storedUser);
+        await loadUserCompaniesAndProfile(storedUser);
       } catch (error) {
         console.error('Error initializing auth:', error);
-        clearAuthData();
+        clearAuthData('manual', false);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     initAuth();
-  }, [navigate, location.pathname]);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const clearAuthData = () => {
-    localStorage.removeItem('infrasoko_auth_token');
-    localStorage.removeItem('infrasoko_user');
-    localStorage.removeItem('infrasoko_active_profile');
-    localStorage.removeItem('infrasoko_active_project');
+  // Signed-in users skip the sign-in and landing pages. Runs when the restored session is
+  // ready or the page changes, not when `user` changes: signIn navigates by itself once
+  // the user's companies have loaded.
+  useEffect(() => {
+    if (loading || !user) return;
+    const authPages = ['/login', '/register', '/'];
+    if (authPages.includes(location.pathname)) {
+      navigate(redirectTarget() ?? '/dashboard', { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, location.pathname, navigate]);
+
+  const clearAuthData = (reason: SignOutReason = 'manual', broadcast = true) => {
+    session.clear(reason, broadcast);
     setUser(null);
     setActiveProfile(null);
     setOrganizationProfiles([]);
@@ -221,19 +228,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const handleSignIn = async (email: string, password: string, redirectTo?: string) => {
+  const handleSignIn = async (email: string, password: string, redirectTo?: string, remember = false) => {
     const response = await authApi.login({ email, password });
-    localStorage.setItem('infrasoko_auth_token', response.data.token);
-    localStorage.setItem('infrasoko_user', JSON.stringify(response.data.user));
+    session.start(response.data.token, response.data.user, remember);
     setUser(response.data.user);
     await loadUserCompaniesAndProfile(response.data.user);
     // Back to where the user was going (e.g. accepting an invitation)
     navigate(safeRedirect(redirectTo) ?? redirectTarget() ?? '/dashboard');
   };
 
-  const handleSignOut = async () => {
-    clearAuthData();
-    navigate('/login');
+  const handleSignOut = async ({ reason = 'manual', broadcast = true }: SignOutOptions = {}) => {
+    clearAuthData(reason, broadcast);
+    const message = SIGN_OUT_MESSAGES[reason];
+    if (message) toast.error(message, { id: 'session-ended' });
+    // When the session ended on its own, come back to the same page after signing in.
+    // (The sign-in page reads the reason from session storage, set by clearAuthData.)
+    if (reason === 'manual') {
+      navigate('/login');
+    } else {
+      const back = location.pathname + location.search;
+      navigate(`/login?redirect=${encodeURIComponent(back)}`);
+    }
   };
 
   const switchToProfile = async (profileType: ProfileType, profileId: string) => {
@@ -281,7 +296,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const handleUpdateUser = (updatedUser: User) => {
     setUser(updatedUser);
-    localStorage.setItem('infrasoko_user', JSON.stringify(updatedUser));
+    session.updateUser(updatedUser);
   };
 
   return (

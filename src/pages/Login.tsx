@@ -1,13 +1,15 @@
-import { ArrowRight, Lock, Mail, MailWarning } from 'lucide-react';
-import React, { useState } from 'react';
+import { ArrowRight, Clock, Lock, Mail, MailWarning } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Spinner } from '../components/Spinner';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { Checkbox } from '../components/ui/checkbox';
 import { useAuth } from '../contexts/AuthContext';
 import { authApi } from '../lib/auth-api';
+import { session } from '../lib/session';
 import { getErrorMessage, isEmailNotVerifiedError } from '../utils/error-handler';
 import { motion } from 'motion/react';
 import { BrandLogo } from '@/components/BrandLogo';
@@ -16,6 +18,17 @@ export function Login() {
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(false);
+  // Why the previous session ended (set when it timed out or ended in another tab).
+  // An expired session shows no banner here.
+  const [endedReason] = useState(() => searchParams.get('reason') ?? session.peekSignOutReason());
+  useEffect(() => session.forgetSignOutReason(), []);
+  const endedMessage =
+    endedReason === 'idle'
+      ? 'You were signed out after a period of inactivity. Sign in to pick up where you left off.'
+      : endedReason === 'remote'
+        ? 'You signed out in another tab.'
+        : null;
   const [isLoading, setIsLoading] = useState(false);
   // Set when the account exists but its email address hasn't been verified
   const [needsVerification, setNeedsVerification] = useState(searchParams.get('verify') === 'required');
@@ -27,13 +40,17 @@ export function Login() {
     e.preventDefault();
     setIsLoading(true);
     try {
-      await signIn(email, password);
+      await signIn(email, password, undefined, remember);
       toast.success('Successfully logged in!');
     } catch (error) {
       if (isEmailNotVerifiedError(error)) {
         setNeedsVerification(true);
-      } else if ((error as { response?: { status?: number } })?.response?.status !== 401) {
-        // 401 (wrong credentials) is already shown by the axios interceptor
+      } else if ((error as { response?: { status?: number } })?.response?.status === 401) {
+        // Wrong email or password (the server does not say which, on purpose)
+        toast.error('Incorrect email or password. Check both and try again, or use "Forgot password?".', {
+          id: 'login-failed',
+        });
+      } else {
         toast.error(getErrorMessage(error, 'Failed to sign in'));
       }
     } finally {
@@ -167,6 +184,13 @@ export function Login() {
               </p>
             </div>
 
+            {endedMessage && !needsVerification && (
+              <div className="mb-6 p-4 rounded-xl bg-gray-50 border border-gray-200 flex items-start gap-3">
+                <Clock className="h-5 w-5 text-gray-500 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-gray-700">{endedMessage}</p>
+              </div>
+            )}
+
             {needsVerification && (
               <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200">
                 <div className="flex items-start gap-3">
@@ -240,6 +264,19 @@ export function Login() {
                     required
                   />
                 </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="remember"
+                  checked={remember}
+                  onCheckedChange={(checked) => setRemember(checked === true)}
+                  disabled={isLoading}
+                  className="border-gray-300 data-[state=checked]:bg-gray-900 data-[state=checked]:border-gray-900 data-[state=checked]:text-white"
+                />
+                <Label htmlFor="remember" className="text-sm font-normal text-gray-600 cursor-pointer select-none">
+                  Keep me signed in on this device
+                </Label>
               </div>
 
               <Button

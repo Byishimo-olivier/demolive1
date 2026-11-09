@@ -47,6 +47,8 @@ interface ExcelImportWizardProps {
   importLabel?: string;
   // Extra choices shown above the rows on the review step (e.g. add to or replace existing data)
   reviewOptions?: ReactNode;
+  // Reshape each sheet right after reading (e.g. a timesheet grid into one row per worker per day)
+  prepareSheet?: (sheet: ParsedSheet) => ParsedSheet;
   // Receives the valid rows and where they came from; throw to keep the wizard open
   onImport: (rows: ImportRow[], source: { fileName: string; sheets: string[] }) => Promise<void> | void;
 }
@@ -70,6 +72,7 @@ export function ExcelImportWizard({
   allowAllSheets = false,
   importLabel = 'Import',
   reviewOptions,
+  prepareSheet,
   onImport,
 }: ExcelImportWizardProps) {
   const fileInput = useRef<HTMLInputElement>(null);
@@ -122,7 +125,9 @@ export function ExcelImportWizard({
     }
     try {
       setBusy(true);
-      const parsed = (await readWorkbook(file)).filter((s) => s.rows.length > 0);
+      const parsed = (await readWorkbook(file))
+        .filter((s) => s.rows.length > 0)
+        .map((s) => (prepareSheet ? prepareSheet(s) : s));
       if (parsed.length === 0) {
         toast.error('The file has no data');
         return;

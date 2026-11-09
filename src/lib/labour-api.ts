@@ -128,6 +128,21 @@ export interface RegisterEntry {
   remarks?: string;
 }
 
+export interface AttendanceListPayload {
+  // People who are not workers yet; lines point at them with newRef
+  newWorkers: { ref: string; fullName: string; phone?: string; nationalId?: string; trade?: string; rate: number }[];
+  days: {
+    date: string;
+    entries: { workerId?: string; newRef?: string; status: AttendanceStatus; units?: number | ''; remarks?: string }[];
+  }[];
+}
+
+export interface AttendanceListResult {
+  days: { date: string; saved?: number; error?: string }[];
+  created: { _id: string; fullName: string; phone?: string }[];
+  reactivated: string[];
+}
+
 export interface PayRun {
   _id: string;
   reference: string;
@@ -180,6 +195,19 @@ export const labourApi = {
       entries: entries.map((e) => ({ ...e, units: e.units === '' ? undefined : e.units })),
     });
     return response.data;
+  },
+
+  /** Attendance from a list: adds the new people, then saves each day */
+  recordAttendanceList: async (projectId: string, payload: AttendanceListPayload) => {
+    const response = await api.post<ApiResponse<AttendanceListResult>>('/finance/labour/attendance/list', {
+      projectId,
+      ...payload,
+      days: payload.days.map((d) => ({
+        ...d,
+        entries: d.entries.map((e) => ({ ...e, units: e.units === '' ? undefined : e.units })),
+      })),
+    });
+    return response.data.data;
   },
 
   summary: async (projectId: string, filters: DateRange & { workerId?: string; status?: string } = {}) => {

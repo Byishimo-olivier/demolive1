@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { format } from 'date-fns';
+import { eachDayOfInterval, format, min as earliest, parseISO, subDays } from 'date-fns';
 import toast from 'react-hot-toast';
-import { Loader2, Lock, Save, Search, Users } from 'lucide-react';
+import { Camera, CheckCheck, ClipboardPaste, Download, FileSpreadsheet, Loader2, Lock, RotateCcw, Save, Search, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   ATTENDANCE_STATUSES,
@@ -23,6 +22,12 @@ import {
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { getErrorMessage } from '@/utils/error-handler';
 import { matchesWorker } from './WorkersList';
+import { cn } from '@/lib/utils';
+import { ExcelImportWizard } from '@/components/import/ExcelImportWizard';
+import type { ImportRow } from '@/lib/excel-import';
+import { attendanceImportFields, downloadAttendanceTemplate, resolveWorker, timesheetToRows } from '@/lib/attendance-import';
+import { AttendanceReviewDialog, type ReviewLine } from './AttendanceReviewDialog';
+import { PasteListDialog } from './PasteListDialog';
 
 interface Props {
   projectId: string;
@@ -36,6 +41,21 @@ const defaultUnits = (worker: Worker, status: AttendanceStatus): number | '' => 
   return status === 'Present' ? 1 : status === 'Half day' ? 0.5 : 0;
 };
 
+// One click per worker: short labels and a colour for each status
+const STATUS_STYLE: Record<AttendanceStatus, { short: string; active: string }> = {
+  Present: { short: 'Present', active: 'bg-emerald-600 text-white border-emerald-600' },
+  'Half day': { short: '½ day', active: 'bg-amber-500 text-white border-amber-500' },
+  Absent: { short: 'Absent', active: 'bg-gray-700 text-white border-gray-700' },
+  Leave: { short: 'Leave', active: 'bg-sky-600 text-white border-sky-600' },
+};
+
+const sameEntry = (a?: RegisterEntry, b?: RegisterEntry) =>
+  !!a && !!b && a.status === b.status && String(a.units) === String(b.units) && (a.remarks ?? '') === (b.remarks ?? '');
+
+// One shared empty list: a new [] each render would re-run the effect below forever
+const NO_WORKERS: Worker[] = [];
+const NO_LINES: ReviewLine[] = [];
+
 const unitLabel = (worker: Worker) => workedUnit(worker.rateType, worker.unitLabel);
 // Days a worker's rate covers (1 unless paid per week / 10 days / 15 days / month)
 const periodDaysOf = (worker: Worker) => (isPeriodRate(worker.rateType) ? worker.periodDays ?? DEFAULT_PERIOD_DAYS[worker.rateType] ?? 1 : 1);
@@ -45,10 +65,17 @@ export function DailyRegister({ projectId, canRecord }: Props) {
   const queryClient = useQueryClient();
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [entries, setEntries] = useState<Record<string, RegisterEntry>>({});
+  // What is saved (or the blank day), to count unsaved changes
+  const [baseline, setBaseline] = useState<Record<string, RegisterEntry>>({});
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
+  const [importing, setImporting] = useState(false);
+  // A list from a photo (read on this device) or pasted text
+  const [pasting, setPasting] = useState<null | 'photo' | 'text'>(null);
+  // A list waiting to be checked before it is recorded (from a spreadsheet or a pasted list)
+  const [review, setReview] = useState<{ lines: ReviewLine[]; source: 'excel' | 'paste' } | null>(null);
 
-  const { data: workers = [], isLoading: loadingWorkers } = useQuery({
+  const { data: workers = NO_WORKERS, isLoading: loadingWorkers } = useQuery({
     queryKey: ['labour-workers', projectId],
     queryFn: () => labourApi.listWorkers(projectId),
   });
@@ -74,6 +101,7 @@ export function DailyRegister({ projectId, canRecord }: Props) {
           { workerId: worker._id, status: 'Absent', units: defaultUnits(worker, 'Absent'), remarks: '' };
     }
     setEntries(next);
+    setBaseline(next);
   }, [listed, rowsByWorker]);
 
   const setEntry = (worker: Worker, patch: Partial<RegisterEntry>) =>
@@ -93,6 +121,21 @@ export function DailyRegister({ projectId, canRecord }: Props) {
   // Search only narrows what is shown; every worker's line is still saved
   const query = search.trim().toLowerCase();
   const shown = query ? listed.filter((w) => matchesWorker(w, query)) : listed;
+
+  const isLocked = (worker: Worker) => !!rowsByWorker.get(worker._id)?.paid || !canRecord;
+  const editable = shown.filter((w) => !isLocked(w));
+  const changes = listed.filter((w) => !sameEntry(entries[w._id], baseline[w._id])).length;
+
+  // Mark every shown (unpaid) worker at once, then fix the exceptions
+  const markAll = (status: AttendanceStatus) =>
+    setEntries((prev) => {
+      const next = { ...prev };
+      for (const worker of editable) {
+        next[worker._id] = { ...prev[worker._id], status, units: defaultUnits(worker, status) };
+      }
+      return next;
+    });
+  const allPresent = editable.length > 0 && editable.every((w) => entries[w._id]?.status === 'Present');
   const present = listed.filter((w) => ['Present', 'Half day'].includes(entries[w._id]?.status)).length;
 
   const total = listed.reduce((sum, w) => {
@@ -119,6 +162,69 @@ export function DailyRegister({ projectId, canRecord }: Props) {
       toast.error(getErrorMessage(error, 'Could not save the register'));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const today = format(new Date(), 'yyyy-MM-dd');
+  const importFields = useMemo(() => attendanceImportFields(today), [today]);
+
+  // Template: the 7 days up to the chosen date, with the project's workers
+  const downloadTemplate = () => {
+    const end = earliest([parseISO(date), new Date()]);
+    const days = eachDayOfInterval({ start: subDays(end, 6), end });
+    downloadAttendanceTemplate(workers, days, format(days[0], 'yyyy-MM-dd'));
+  };
+
+  // Spreadsheet rows: when every line is clearly an existing worker, record straight away;
+  // otherwise (new people, same names, repeated lines) check them on the review screen first
+  const importAttendance = async (rows: ImportRow[]) => {
+    const lines: ReviewLine[] = rows.map((r) => ({
+      fullName: r.fullName.trim(),
+      phone: r.phone?.trim() ?? '',
+      nationalId: r.nationalId?.trim() ?? '',
+      date: r.date,
+      status: (r.status || 'Present') as AttendanceStatus,
+      units: r.units === '' || r.units === undefined ? '' : Number(r.units),
+      remarks: r.remarks?.trim() ?? '',
+    }));
+    const matches = lines.map((line) => resolveWorker(workers, line));
+    const slots = new Set<string>();
+    const allKnown = matches.every((m, i) => {
+      if (m.kind !== 'existing' || m.by === 'name') return false;
+      const slot = `${m.worker._id}@${lines[i].date}`;
+      if (slots.has(slot)) return false;
+      slots.add(slot);
+      return true;
+    });
+    if (!allKnown) {
+      setReview({ lines, source: 'excel' });
+      return;
+    }
+
+    const byDate = new Map<string, { workerId: string; status: AttendanceStatus; units?: number | ''; remarks?: string }[]>();
+    lines.forEach((line, i) => {
+      const m = matches[i];
+      if (m.kind !== 'existing') return;
+      byDate.set(line.date, [
+        ...(byDate.get(line.date) ?? []),
+        { workerId: m.worker._id, status: line.status, units: line.units, ...(line.remarks ? { remarks: line.remarks } : {}) },
+      ]);
+    });
+    const result = await labourApi.recordAttendanceList(projectId, {
+      newWorkers: [],
+      days: [...byDate].map(([d, entries]) => ({ date: d, entries })),
+    });
+    queryClient.invalidateQueries({ queryKey: ['labour-attendance', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['labour-workers', projectId] });
+    const saved = result.days.filter((d) => !d.error);
+    const failed = result.days.filter((d) => d.error);
+    // Nothing saved: keep the wizard open so the rows can be fixed
+    if (saved.length === 0) throw new Error(failed[0]?.error ?? 'Nothing was imported');
+    toast.success(`Attendance imported: ${lines.length} line(s) over ${saved.length} day(s)`);
+    if (failed.length) {
+      toast.error(`Some days were not saved — ${failed.map((d) => `${format(parseISO(d.date), 'd MMM')}: ${d.error}`).join(' · ')}`, {
+        duration: 12000,
+      });
     }
   };
 
@@ -153,6 +259,26 @@ export function DailyRegister({ projectId, canRecord }: Props) {
             />
           </div>
           {loadingDay && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+          {canRecord && (
+            <>
+              <Button variant="outline" size="sm" className="h-9 bg-white" onClick={() => setPasting('photo')}>
+                <Camera className="mr-1.5 h-4 w-4" />
+                Import photo
+              </Button>
+              <Button variant="outline" size="sm" className="h-9 bg-white" onClick={() => setPasting('text')}>
+                <ClipboardPaste className="mr-1.5 h-4 w-4" />
+                Paste list
+              </Button>
+              <Button variant="outline" size="sm" className="h-9 bg-white" onClick={() => setImporting(true)}>
+                <FileSpreadsheet className="mr-1.5 h-4 w-4" />
+                Import from Excel
+              </Button>
+              <Button variant="ghost" size="sm" className="h-9" onClick={downloadTemplate} title="Timesheet for the last 7 days with your workers listed">
+                <Download className="mr-1.5 h-4 w-4" />
+                Template
+              </Button>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-4">
           {listed.length > 0 && (
@@ -167,16 +293,44 @@ export function DailyRegister({ projectId, canRecord }: Props) {
             <Button onClick={save} disabled={saving} className="bg-gray-900 text-white hover:bg-gray-800">
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               Save register
+              {changes > 0 && (
+                <span className="ml-2 rounded-full bg-orange-500 px-1.5 py-0.5 text-xs font-semibold leading-none">
+                  {changes}
+                </span>
+              )}
             </Button>
           )}
         </div>
       </div>
 
+      {canRecord && editable.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
+          <Button
+            size="sm"
+            onClick={() => markAll('Present')}
+            disabled={allPresent}
+            className="bg-emerald-600 text-white hover:bg-emerald-700"
+          >
+            <CheckCheck className="mr-1.5 h-4 w-4" />
+            Mark {query ? `these ${editable.length}` : `all ${editable.length}`} present
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => markAll('Absent')} className="bg-white">
+            <RotateCcw className="mr-1.5 h-4 w-4" />
+            Reset to absent
+          </Button>
+          <span className="text-xs text-gray-500">
+            Then click the status of anyone who was absent, on leave or worked half a day.
+          </span>
+        </div>
+      )}
+
       {listed.length === 0 ? (
         <Card>
           <CardContent className="p-10 text-center">
             <Users className="mx-auto mb-3 h-10 w-10 text-gray-300" />
-            <p className="text-gray-500">Add workers first, then record their attendance here</p>
+            <p className="text-gray-500">
+              Add workers first, or use Import photo, Paste list or Import from Excel: new people on the list are added as workers.
+            </p>
           </CardContent>
         </Card>
       ) : shown.length === 0 ? (
@@ -199,7 +353,7 @@ export function DailyRegister({ projectId, canRecord }: Props) {
               {shown.map((worker) => {
                 const entry = entries[worker._id];
                 const row = rowsByWorker.get(worker._id);
-                const locked = !!row?.paid || !canRecord;
+                const locked = isLocked(worker);
                 const rate = row?.rate ?? worker.rate;
                 const periodDays = row ? row.periodDays ?? 1 : periodDaysOf(worker);
                 const units = entry?.units === '' || entry?.units === undefined ? 0 : Number(entry.units);
@@ -215,18 +369,32 @@ export function DailyRegister({ projectId, canRecord }: Props) {
                       </p>
                     </TableCell>
                     <TableCell>
-                      <Select value={entry.status} onValueChange={(v) => setEntry(worker, { status: v as AttendanceStatus })} disabled={locked}>
-                        <SelectTrigger className="h-9 w-[130px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ATTENDANCE_STATUSES.map((s) => (
-                            <SelectItem key={s} value={s}>
-                              {s}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div
+                        role="radiogroup"
+                        aria-label={`Attendance for ${worker.fullName}`}
+                        className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5"
+                      >
+                        {ATTENDANCE_STATUSES.map((s) => {
+                          const selected = entry.status === s;
+                          return (
+                            <button
+                              key={s}
+                              type="button"
+                              role="radio"
+                              aria-checked={selected}
+                              disabled={locked}
+                              onClick={() => !selected && setEntry(worker, { status: s })}
+                              className={cn(
+                                'whitespace-nowrap rounded-md border border-transparent px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed',
+                                selected ? STATUS_STYLE[s].active : 'text-gray-600 hover:bg-gray-100 disabled:hover:bg-transparent',
+                                locked && !selected && 'opacity-40'
+                              )}
+                            >
+                              {STATUS_STYLE[s].short}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1.5">
@@ -266,6 +434,43 @@ export function DailyRegister({ projectId, canRecord }: Props) {
           </Table>
         </div>
       )}
+
+      <ExcelImportWizard
+        open={importing}
+        onOpenChange={setImporting}
+        title="Import attendance"
+        description="Upload a timesheet (workers down the side, dates across the top, P / H / A / L in the cells) or a list with one row per worker per day. Use Template to get a 7-day timesheet with your workers already listed."
+        fields={importFields}
+        prepareSheet={timesheetToRows}
+        importLabel="Import attendance"
+        onImport={importAttendance}
+      />
+
+      <PasteListDialog
+        open={!!pasting}
+        onOpenChange={(open) => !open && setPasting(null)}
+        startWithPhoto={pasting === 'photo'}
+        defaultDate={date}
+        onParsed={(lines, day) =>
+          setReview({
+            source: 'paste',
+            lines: lines.map((l) => ({ fullName: l.name, phone: l.phone, nationalId: l.nationalId, date: day, status: l.status })),
+          })
+        }
+      />
+
+      <AttendanceReviewDialog
+        open={!!review}
+        onOpenChange={(open) => !open && setReview(null)}
+        projectId={projectId}
+        workers={workers}
+        lines={review?.lines ?? NO_LINES}
+        singleDate={review?.source === 'paste'}
+        title={
+          review?.source === 'paste' ? 'Check the pasted list' : 'Check the imported attendance'
+        }
+        description="Each line is matched to a worker by ID number, then phone, then name. People who are not workers yet are added as new workers. Lines in red need a decision."
+      />
     </div>
   );
 }
