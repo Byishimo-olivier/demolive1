@@ -67,6 +67,27 @@ export interface WorkerInput {
   active?: boolean;
 }
 
+/** Arrival or leaving photo of a worker */
+export interface AttendancePhoto {
+  // Served path, e.g. "/uploads/attendance/<id>.jpg" (open it with apiFileUrl)
+  photoPath: string;
+  at: string;
+  byName?: string;
+  // Leaving photo only: face distance to the arrival photo, and whether it is the same person
+  distance?: number;
+  match?: boolean;
+}
+
+export interface AttendancePhotoResult {
+  _id: string;
+  workerId: string;
+  workerName: string;
+  date: string;
+  status: AttendanceStatus;
+  checkIn?: AttendancePhoto;
+  checkOut?: AttendancePhoto;
+}
+
 export interface AttendanceRow {
   _id: string;
   date: string;
@@ -85,6 +106,8 @@ export interface AttendanceRow {
   recordedByName?: string;
   paid: boolean;
   payRunReference?: string;
+  checkIn?: AttendancePhoto;
+  checkOut?: AttendancePhoto;
 }
 
 export interface WorkerTotal {
@@ -208,6 +231,19 @@ export const labourApi = {
       })),
     });
     return response.data.data;
+  },
+
+  /** Arrival ("in") or leaving ("out") photo; the server compares the leaving face with the arrival face */
+  recordPhoto: async (payload: {
+    projectId: string;
+    workerId: string;
+    date: string;
+    kind: 'in' | 'out';
+    photo: string;
+    descriptor: number[];
+  }) => {
+    const response = await api.post<ApiResponse<AttendancePhotoResult>>('/finance/labour/attendance/photo', payload);
+    return response.data;
   },
 
   summary: async (projectId: string, filters: DateRange & { workerId?: string; status?: string } = {}) => {

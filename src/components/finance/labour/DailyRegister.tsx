@@ -1,8 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { eachDayOfInterval, format, min as earliest, parseISO, subDays } from 'date-fns';
 import toast from 'react-hot-toast';
-import { Camera, CheckCheck, ClipboardPaste, Download, FileSpreadsheet, Loader2, Lock, RotateCcw, Save, Search, Users } from 'lucide-react';
+import {
+  AlertTriangle,
+  Camera,
+  CheckCheck,
+  ClipboardPaste,
+  Download,
+  FileSpreadsheet,
+  Loader2,
+  Lock,
+  LogIn,
+  LogOut,
+  RotateCcw,
+  Save,
+  Search,
+  Users,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -15,10 +30,14 @@ import {
   lineAmount,
   rateUnit,
   workedUnit,
+  type AttendancePhoto,
+  type AttendancePhotoResult,
   type AttendanceStatus,
   type RegisterEntry,
   type Worker,
 } from '@/lib/labour-api';
+import { apiFileUrl } from '@/lib/axios';
+import { AttendancePhotoDialog, AttendancePhotosView, type PhotoTarget } from './AttendancePhotoDialog';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { getErrorMessage } from '@/utils/error-handler';
 import { matchesWorker } from './WorkersList';
@@ -60,6 +79,28 @@ const unitLabel = (worker: Worker) => workedUnit(worker.rateType, worker.unitLab
 // Days a worker's rate covers (1 unless paid per week / 10 days / 15 days / month)
 const periodDaysOf = (worker: Worker) => (isPeriodRate(worker.rateType) ? worker.periodDays ?? DEFAULT_PERIOD_DAYS[worker.rateType] ?? 1 : 1);
 
+/** Small arrival / leaving photo in the register; red when the leaving face does not match */
+function PhotoThumb({ photo, label, onClick }: { photo: AttendancePhoto; label: string; onClick: () => void }) {
+  const mismatch = photo.match === false;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={`${label} ${format(parseISO(photo.at), 'HH:mm')}${mismatch ? ' · does not look like the arrival photo' : ''}`}
+      className="flex flex-col items-center gap-0.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+    >
+      <img
+        src={apiFileUrl(photo.photoPath)}
+        alt={`${label} photo`}
+        className={cn('h-9 w-9 rounded-md border object-cover', mismatch ? 'border-red-500 ring-2 ring-red-500' : 'border-gray-200')}
+      />
+      <span className={cn('text-[10px] leading-none', mismatch ? 'font-semibold text-red-600' : 'text-gray-500')}>
+        {format(parseISO(photo.at), 'HH:mm')}
+      </span>
+    </button>
+  );
+}
+
 export function DailyRegister({ projectId, canRecord }: Props) {
   const { formatAmount } = useCurrency();
   const queryClient = useQueryClient();
@@ -74,6 +115,11 @@ export function DailyRegister({ projectId, canRecord }: Props) {
   const [pasting, setPasting] = useState<null | 'photo' | 'text'>(null);
   // A list waiting to be checked before it is recorded (from a spreadsheet or a pasted list)
   const [review, setReview] = useState<{ lines: ReviewLine[]; source: 'excel' | 'paste' } | null>(null);
+  // Arrival / leaving photo being taken, and a worker whose photos are open
+  const [photoTarget, setPhotoTarget] = useState<PhotoTarget | null>(null);
+  const [viewing, setViewing] = useState<Worker | null>(null);
+  // Photos are taken live, so only on today's register
+  const isToday = date === format(new Date(), 'yyyy-MM-dd');
 
   const { data: workers = NO_WORKERS, isLoading: loadingWorkers } = useQuery({
     queryKey: ['labour-workers', projectId],
@@ -91,6 +137,11 @@ export function DailyRegister({ projectId, canRecord }: Props) {
     [workers, rowsByWorker]
   );
 
+  // The day the register was last loaded for, and what was saved then: a reload of the same day
+  // (after a photo, say) keeps the lines changed here and not saved yet
+  const loadedDate = useRef<string | null>(null);
+  const baselineRef = useRef<Record<string, RegisterEntry>>({});
+
   useEffect(() => {
     const next: Record<string, RegisterEntry> = {};
     for (const worker of listed) {
@@ -100,9 +151,34 @@ export function DailyRegister({ projectId, canRecord }: Props) {
         : // Everyone starts absent; mark the ones who came
           { workerId: worker._id, status: 'Absent', units: defaultUnits(worker, 'Absent'), remarks: '' };
     }
-    setEntries(next);
+    const sameDay = loadedDate.current === date;
+    const previousBaseline = baselineRef.current;
+    loadedDate.current = date;
+    baselineRef.current = next;
+    setEntries((prev) => {
+      if (!sameDay) return next;
+      const merged = { ...next };
+      for (const id of Object.keys(next)) {
+        const edited = prev[id] && previousBaseline[id] && !sameEntry(prev[id], previousBaseline[id]);
+        if (edited && !rowsByWorker.get(id)?.paid) merged[id] = prev[id];
+      }
+      return merged;
+    });
     setBaseline(next);
-  }, [listed, rowsByWorker]);
+  }, [listed, rowsByWorker, date]);
+
+  // A photo was saved: that worker's line now comes from the server (arriving marks present)
+  const photoSaved = (result: AttendancePhotoResult) => {
+    setEntries((prev) =>
+      baselineRef.current[result.workerId] ? { ...prev, [result.workerId]: baselineRef.current[result.workerId] } : prev
+    );
+    queryClient.invalidateQueries({ queryKey: ['labour-attendance', projectId] });
+  };
+
+  const photoRows = listed.map((w) => rowsByWorker.get(w._id)).filter((r) => !!r);
+  const arrivedCount = photoRows.filter((r) => r.checkIn).length;
+  const leftCount = photoRows.filter((r) => r.checkOut).length;
+  const mismatchCount = photoRows.filter((r) => r.checkOut?.match === false).length;
 
   const setEntry = (worker: Worker, patch: Partial<RegisterEntry>) =>
     setEntries((prev) => {
@@ -280,7 +356,19 @@ export function DailyRegister({ projectId, canRecord }: Props) {
             </>
           )}
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
+          {arrivedCount > 0 && (
+            <span className="text-sm text-gray-600" title="Workers photographed arriving and leaving">
+              Photos in <span className="font-semibold text-gray-900">{arrivedCount}</span> · out{' '}
+              <span className="font-semibold text-gray-900">{leftCount}</span>
+              {mismatchCount > 0 && (
+                <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
+                  <AlertTriangle className="h-3 w-3" />
+                  {mismatchCount} face{mismatchCount === 1 ? '' : 's'} do not match
+                </span>
+              )}
+            </span>
+          )}
           {listed.length > 0 && (
             <span className="text-sm text-gray-600">
               Present <span className="font-semibold text-gray-900">{present}</span> / {listed.length}
@@ -344,6 +432,7 @@ export function DailyRegister({ projectId, canRecord }: Props) {
               <TableRow className="bg-gray-50">
                 <TableHead>Worker</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead title="Face photos when the worker arrives and leaves">Arrived / left</TableHead>
                 <TableHead>Worked</TableHead>
                 <TableHead>Remarks</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
@@ -354,6 +443,7 @@ export function DailyRegister({ projectId, canRecord }: Props) {
                 const entry = entries[worker._id];
                 const row = rowsByWorker.get(worker._id);
                 const locked = isLocked(worker);
+                const canPhoto = canRecord && isToday && !row?.paid;
                 const rate = row?.rate ?? worker.rate;
                 const periodDays = row ? row.periodDays ?? 1 : periodDaysOf(worker);
                 const units = entry?.units === '' || entry?.units === undefined ? 0 : Number(entry.units);
@@ -394,6 +484,43 @@ export function DailyRegister({ projectId, canRecord }: Props) {
                             </button>
                           );
                         })}
+                      </div>
+                    </TableCell>
+                    <TableCell className="min-w-[140px]">
+                      <div className="flex items-start gap-2">
+                        {row?.checkIn ? (
+                          <PhotoThumb photo={row.checkIn} label="Arrived" onClick={() => setViewing(worker)} />
+                        ) : canPhoto ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 px-2 text-xs"
+                            onClick={() => setPhotoTarget({ worker, kind: 'in' })}
+                            title="Photo of the worker arriving: marks them present"
+                          >
+                            <LogIn className="mr-1 h-3.5 w-3.5" />
+                            Arrive
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
+                        {row?.checkOut ? (
+                          <PhotoThumb photo={row.checkOut} label="Left" onClick={() => setViewing(worker)} />
+                        ) : (
+                          canPhoto &&
+                          row?.checkIn && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 px-2 text-xs"
+                              onClick={() => setPhotoTarget({ worker, kind: 'out' })}
+                              title="Photo of the worker leaving: compared with the arrival photo"
+                            >
+                              <LogOut className="mr-1 h-3.5 w-3.5" />
+                              Leave
+                            </Button>
+                          )
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -456,6 +583,29 @@ export function DailyRegister({ projectId, canRecord }: Props) {
             source: 'paste',
             lines: lines.map((l) => ({ fullName: l.name, phone: l.phone, nationalId: l.nationalId, date: day, status: l.status })),
           })
+        }
+      />
+
+      <AttendancePhotoDialog
+        projectId={projectId}
+        date={date}
+        target={photoTarget}
+        current={photoTarget ? rowsByWorker.get(photoTarget.worker._id) : undefined}
+        onClose={() => setPhotoTarget(null)}
+        onSaved={photoSaved}
+      />
+
+      <AttendancePhotosView
+        title={viewing ? `${viewing.fullName} · ${format(parseISO(date), 'd MMM yyyy')}` : ''}
+        photos={viewing ? rowsByWorker.get(viewing._id) ?? null : null}
+        onClose={() => setViewing(null)}
+        onRetake={
+          viewing && canRecord && isToday && !rowsByWorker.get(viewing._id)?.paid
+            ? (kind) => {
+                setPhotoTarget({ worker: viewing, kind });
+                setViewing(null);
+              }
+            : undefined
         }
       />
 

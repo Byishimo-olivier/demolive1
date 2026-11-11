@@ -14,6 +14,7 @@ import { getErrorMessage } from '@/utils/error-handler';
 import { CompanyProfileSettings } from '../components/settings/CompanyProfileSettings';
 import { BidderProfileSettings } from '../components/settings/BidderProfileSettings';
 import { LandingImagesSettings } from '../components/settings/LandingImagesSettings';
+import { MobileAppSettings } from '../components/settings/MobileAppSettings';
 import { canManageLandingPage } from '../lib/site-api';
 
 export function Settings() {
@@ -109,6 +110,7 @@ export function Settings() {
           <TabsTrigger value="company">Company Profile</TabsTrigger>
           <TabsTrigger value="bidder">Bidder Profile</TabsTrigger>
           {showLandingPage && <TabsTrigger value="landing">Landing Page</TabsTrigger>}
+          {showLandingPage && <TabsTrigger value="mobile">Mobile App</TabsTrigger>}
         </TabsList>
         <TabsContent value="profile" className="space-y-6">
           <div className="grid gap-6">
@@ -248,6 +250,11 @@ export function Settings() {
         <TabsContent value="bidder">
           <BidderProfileSettings />
         </TabsContent>
+        {showLandingPage && (
+          <TabsContent value="mobile">
+            <MobileAppSettings />
+          </TabsContent>
+        )}
         {showLandingPage && (
           <TabsContent value="landing">
             <LandingImagesSettings />
