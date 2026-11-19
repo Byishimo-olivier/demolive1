@@ -590,7 +590,7 @@ export function DailyRegister({ projectId, canRecord }: Props) {
         projectId={projectId}
         date={date}
         target={photoTarget}
-        current={photoTarget ? rowsByWorker.get(photoTarget.worker._id) : undefined}
+        current={photoTarget && photoTarget.kind !== 'profile' ? rowsByWorker.get(photoTarget.worker._id) : undefined}
         onClose={() => setPhotoTarget(null)}
         onSaved={photoSaved}
       />

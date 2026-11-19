@@ -3,6 +3,8 @@ import toast from 'react-hot-toast';
 import { permissionService } from '../services/permission.service';
 import { isEmailNotVerifiedError } from '../utils/error-handler';
 import { session } from './session';
+import { isDemoMode } from '../demo/demo-mode';
+import { demoAdapter } from '../demo/demo-backend';
 
 // Use Vite's same-origin dev proxy locally so browser requests do not need
 // cross-origin CORS permission. Production builds continue using VITE_BASE_URL.
@@ -51,6 +53,12 @@ const USE_PROXY = false;
 // Request interceptor
 axiosInstance.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    // Demo mode: answered in the browser from sample data, never sent to the server
+    if (isDemoMode()) {
+      config.adapter = demoAdapter;
+      return config;
+    }
+
     // Add auth token
     const token = session.getToken();
     if (token) {

@@ -31,6 +31,19 @@ InfraSoko is a comprehensive web-based infrastructure project management system 
 - Task completion status
 - Interactive charts and visualizations
 
+## 🎬 Live demo (no account needed)
+
+Send prospects to **`https://<your-site>/demo`** (or they click **Try the live demo** on the home page or
+**Explore the live demo** on the sign-in page). They land on the dashboard of *Demo Construction Ltd* with four
+sample projects; *Kigali Business Hub – Office Block* is fully filled in (timeline, BoQ, budget, expenses,
+invoices, procurement, stock, labour, petty cash, subcontractors, documents).
+
+- Everything runs in the visitor's browser (`src/demo/`): no request reaches the API and no account is created.
+- Visitors can create and approve things freely; changes stay in their browser until they click **Exit demo**.
+- A banner on every page offers **Get your own account** — set `VITE_DEMO_CONTACT_WHATSAPP`,
+  `VITE_DEMO_CONTACT_PHONE` or `VITE_DEMO_CONTACT_EMAIL` so it calls / messages you (otherwise it opens `/contact`).
+- To change the sample data, edit `src/demo/demo-seed.ts` and bump `DEMO_DB_VERSION` so returning visitors get it.
+
 ## 🛠 Technology Stack
 
 - **Frontend Framework**: React 18.x

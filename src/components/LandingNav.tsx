@@ -89,6 +89,13 @@ export function LandingNav() {
             ) : (
               <>
                 <Button
+                  variant="outline"
+                  className="h-9 px-4 border-orange-300 bg-orange-50 text-orange-800 hover:bg-orange-100 rounded-lg text-sm font-medium"
+                  onClick={() => navigate('/demo')}
+                >
+                  Live demo
+                </Button>
+                <Button
                   variant="ghost"
                   className="h-9 px-4 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg text-sm font-medium"
                   onClick={() => handleAuthAction('login')}
@@ -162,6 +169,16 @@ export function LandingNav() {
                   </Button>
                 ) : (
                   <>
+                    <Button
+                      variant="outline"
+                      className="w-full h-10 border-orange-300 bg-orange-50 text-orange-800 rounded-lg text-sm font-medium"
+                      onClick={() => {
+                        navigate('/demo');
+                        setIsMenuOpen(false);
+                      }}
+                    >
+                      Try the live demo
+                    </Button>
                     <Button
                       variant="outline"
                       className="w-full h-10 border-gray-200 rounded-lg text-sm font-medium"

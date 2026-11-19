@@ -10,6 +10,8 @@ import { projectAccessStore } from '../lib/project-access-store';
 import { projectAccessApi } from '../lib/project-access-api';
 import { session, type SignOutReason } from '../lib/session';
 import toast from 'react-hot-toast';
+import { DEMO_TOKEN, isDemoMode, setDemoFlag } from '../demo/demo-mode';
+import { resetDemoData } from '../demo/demo-backend';
 
 // There is no personal workspace: everyone works in a company
 type ProfileType = 'organization';
@@ -34,6 +36,9 @@ type AuthContextType = {
   refreshUserCompanies: (activateCompanyId?: string) => Promise<void>;
   updateUser: (user: User) => void;
   can: (permission: string) => boolean;
+  // Demo: browse the app with sample data, no account needed
+  isDemo: boolean;
+  startDemo: () => Promise<void>;
 };
 
 export type SignOutOptions = {
@@ -109,6 +114,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           await session.borrowFromOpenTab();
         }
         const token = session.getToken();
+        // A demo left on without its session (e.g. storage cleared): back to the real server
+        if (isDemoMode() && token !== DEMO_TOKEN) {
+          setDemoFlag(false);
+          resetDemoData();
+        }
         if (!token) return;
 
         if (session.isExpired(token)) {
@@ -154,6 +164,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearAuthData = (reason: SignOutReason = 'manual', broadcast = true) => {
     session.clear(reason, broadcast);
+    // Leaving the demo throws away the visitor's changes
+    if (isDemoMode()) {
+      setDemoFlag(false);
+      resetDemoData();
+    }
     setUser(null);
     setActiveProfile(null);
     setOrganizationProfiles([]);
@@ -229,12 +244,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const handleSignIn = async (email: string, password: string, redirectTo?: string, remember = false) => {
+    // A real sign-in always goes to the real server
+    if (isDemoMode()) {
+      setDemoFlag(false);
+      resetDemoData();
+    }
     const response = await authApi.login({ email, password });
     session.start(response.data.token, response.data.user, remember);
     setUser(response.data.user);
     await loadUserCompaniesAndProfile(response.data.user);
     // Back to where the user was going (e.g. accepting an invitation)
     navigate(safeRedirect(redirectTo) ?? redirectTarget() ?? '/dashboard');
+  };
+
+  const handleStartDemo = async () => {
+    // A fresh sandbox each time the demo is started
+    resetDemoData();
+    localStorage.removeItem('infrasoko_active_project');
+    localStorage.removeItem('infrasoko_active_profile');
+    setDemoFlag(true);
+    // Answered by the demo backend (see src/demo)
+    const response = await authApi.login({ email: 'demo@infrasoko.app', password: 'demo' });
+    // "Remembered" so the demo survives a refresh and isn't signed out for being idle
+    session.start(DEMO_TOKEN, response.data.user, true);
+    setUser(response.data.user);
+    await loadUserCompaniesAndProfile(response.data.user);
+    setLoading(false);
+    navigate('/dashboard', { replace: true });
   };
 
   const handleSignOut = async ({ reason = 'manual', broadcast = true }: SignOutOptions = {}) => {
@@ -313,6 +349,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         refreshUserCompanies,
         updateUser: handleUpdateUser,
         can,
+        isDemo: !!user && isDemoMode(),
+        startDemo: handleStartDemo,
       }}
     >
       {children}

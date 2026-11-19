@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, Building2, BarChart3, FileText, Users, ChevronRight } from 'lucide-react';
+import { ArrowRight, Building2, BarChart3, FileText, Users, ChevronRight, PlayCircle } from 'lucide-react';
 import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -152,6 +152,15 @@ export function Landing() {
               <Button
                 size="lg"
                 variant="outline"
+                onClick={() => navigate('/demo')}
+                className="h-12 rounded-lg border-orange-300 bg-orange-50 px-8 font-medium text-orange-800 hover:bg-orange-100"
+              >
+                <PlayCircle className="mr-2 h-4 w-4" />
+                Try the live demo
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
                 onClick={() => navigate('/features')}
                 className="h-12 rounded-lg border-gray-300 bg-white/70 px-8 font-medium hover:bg-gray-50"
               >
@@ -165,7 +174,7 @@ export function Landing() {
               transition={{ duration: 0.5, delay: 0.45 }}
               className="mt-6 text-sm text-gray-500"
             >
-              No credit card required · 14-day free trial · Cancel anytime
+              No credit card required · 14-day free trial · Live demo, no sign-up
             </motion.p>
           </div>
 

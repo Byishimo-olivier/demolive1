@@ -51,7 +51,16 @@ export interface Worker {
   unitLabel?: string;
   // Days of work one payment covers (paid every 1, 2, 5… days)
   payEveryDays?: number;
+  // The worker's registered face: arrival and leaving photos must match it
+  profilePhoto?: WorkerProfilePhoto;
   active: boolean;
+}
+
+export interface WorkerProfilePhoto {
+  // Served path (open it with apiFileUrl)
+  photoPath: string;
+  at: string;
+  byName?: string;
 }
 
 export interface WorkerInput {
@@ -65,6 +74,9 @@ export interface WorkerInput {
   unitLabel?: string;
   payEveryDays?: number;
   active?: boolean;
+  // A new profile photo (data URL) and the face read from it, or null to remove the photo
+  profilePhoto?: string | null;
+  profileDescriptor?: number[];
 }
 
 /** Arrival or leaving photo of a worker */
@@ -84,6 +96,8 @@ export interface AttendancePhotoResult {
   workerName: string;
   date: string;
   status: AttendanceStatus;
+  // The face was checked against the worker's profile photo
+  profileChecked?: boolean;
   checkIn?: AttendancePhoto;
   checkOut?: AttendancePhoto;
 }

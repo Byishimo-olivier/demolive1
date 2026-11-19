@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useProject } from '../contexts/ProjectContext';
 import { Sidebar } from './Sidebar';
 import { Navbar } from './Navbar';
+import { DemoBanner } from './DemoBanner';
 import { Button } from './ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -57,6 +58,7 @@ export function Layout() {
           )}
         >
           <div className="container mx-auto px-4 py-6 lg:px-6 lg:py-8">
+            <DemoBanner />
             {isProjectRoute && currentProject && (
               <Button
                 variant="ghost"

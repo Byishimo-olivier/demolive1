@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Edit, FileSpreadsheet, Loader2, Plus, Search, UserX, Users, UserCheck } from 'lucide-react';
+import { Camera, Edit, FileSpreadsheet, Loader2, Plus, Search, Trash2, UserRound, UserX, Users, UserCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,7 +18,9 @@ import {
   type RateType,
   type Worker,
 } from '@/lib/labour-api';
+import { apiFileUrl } from '@/lib/axios';
 import { useCurrency } from '@/contexts/CurrencyContext';
+import { AttendancePhotoDialog } from './AttendancePhotoDialog';
 import { getErrorMessage } from '@/utils/error-handler';
 import { cn } from '@/lib/utils';
 
@@ -149,7 +151,12 @@ export function WorkersList({ projectId, canRecord }: Props) {
             <TableBody>
               {shown.map((worker) => (
                 <TableRow key={worker._id} className={cn(!worker.active && 'text-gray-400')}>
-                  <TableCell className="font-medium">{worker.fullName}</TableCell>
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2.5">
+                      <WorkerAvatar worker={worker} />
+                      {worker.fullName}
+                    </div>
+                  </TableCell>
                   <TableCell>{worker.trade || '—'}</TableCell>
                   <TableCell>{worker.nationalId || '—'}</TableCell>
                   <TableCell>{worker.phone || '—'}</TableCell>
@@ -229,6 +236,26 @@ export function WorkersList({ projectId, canRecord }: Props) {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/** The worker's profile photo, or a placeholder saying there is none */
+function WorkerAvatar({ worker }: { worker: Worker }) {
+  return worker.profilePhoto ? (
+    <a href={apiFileUrl(worker.profilePhoto.photoPath)} target="_blank" rel="noreferrer" title="Profile photo">
+      <img
+        src={apiFileUrl(worker.profilePhoto.photoPath)}
+        alt={`Profile photo of ${worker.fullName}`}
+        className="h-8 w-8 shrink-0 rounded-full border border-gray-200 object-cover"
+      />
+    </a>
+  ) : (
+    <span
+      title="No profile photo: arrival and leaving faces are not checked against the worker"
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-dashed border-gray-300 text-gray-400"
+    >
+      <UserRound className="h-4 w-4" />
+    </span>
+  );
+}
+
 function WorkerDialog({
   open,
   onOpenChange,
@@ -250,6 +277,9 @@ function WorkerDialog({
   // RWF per day, and how many days of work each payment covers
   const [rate, setRate] = useState('');
   const [payEvery, setPayEvery] = useState('1');
+  // A new profile photo taken in this form, or 'removed'; null keeps the current one
+  const [newPhoto, setNewPhoto] = useState<{ photo: string; descriptor: number[] } | 'removed' | null>(null);
+  const [takingPhoto, setTakingPhoto] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Workers added per hour or per unit of work earlier keep that; everyone else is paid per day
@@ -265,7 +295,11 @@ function WorkerDialog({
     const periodDays = worker && isPeriodRate(worker.rateType) ? worker.periodDays ?? DEFAULT_PERIOD_DAYS[worker.rateType] ?? 1 : 1;
     setRate(worker ? String(round2(worker.rate / periodDays)) : '');
     setPayEvery(String(worker?.payEveryDays && worker.payEveryDays > 1 ? worker.payEveryDays : periodDays));
+    setNewPhoto(null);
   }, [open, worker]);
+
+  const shownPhoto =
+    newPhoto === 'removed' ? null : newPhoto ? newPhoto.photo : worker?.profilePhoto ? apiFileUrl(worker.profilePhoto.photoPath) : null;
 
   const rateValue = Number(rate) || 0;
   const days = Number(payEvery);
@@ -283,6 +317,11 @@ function WorkerDialog({
       phone: phone.trim(),
       rate: Number(rate),
       ...(keepsOwnRate ? {} : { rateType: 'Daily' as RateType, payEveryDays: days }),
+      ...(newPhoto === 'removed'
+        ? { profilePhoto: null }
+        : newPhoto
+          ? { profilePhoto: newPhoto.photo, profileDescriptor: newPhoto.descriptor }
+          : {}),
     };
     setSaving(true);
     try {
@@ -304,6 +343,42 @@ function WorkerDialog({
           <DialogTitle>{worker ? 'Edit worker' : 'Add worker'}</DialogTitle>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
+          <div className="flex items-center gap-4 rounded-lg border border-gray-200 p-3">
+            {shownPhoto ? (
+              <img src={shownPhoto} alt="Profile photo" className="h-16 w-16 shrink-0 rounded-full border border-gray-200 object-cover" />
+            ) : (
+              <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border border-dashed border-gray-300 text-gray-400">
+                <UserRound className="h-7 w-7" />
+              </span>
+            )}
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <p className="text-sm font-medium text-gray-700">Profile photo</p>
+              <p className="text-xs text-gray-500">
+                {shownPhoto
+                  ? 'Arrival and leaving photos must match this face.'
+                  : 'Optional. With it, attendance photos of anyone else are refused for this worker.'}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setTakingPhoto(true)} disabled={saving}>
+                  <Camera className="mr-1.5 h-4 w-4" />
+                  {shownPhoto ? 'Retake' : 'Take photo'}
+                </Button>
+                {shownPhoto && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                    onClick={() => setNewPhoto(worker?.profilePhoto ? 'removed' : null)}
+                    disabled={saving}
+                  >
+                    <Trash2 className="mr-1.5 h-4 w-4" />
+                    Remove
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
           <div className="space-y-1.5">
             <Label htmlFor="w-name">Full name</Label>
             <Input id="w-name" value={fullName} onChange={(e) => setFullName(e.target.value)} required minLength={2} />
@@ -373,6 +448,13 @@ function WorkerDialog({
           </DialogFooter>
         </form>
       </DialogContent>
+      <AttendancePhotoDialog
+        projectId={projectId}
+        date=""
+        target={takingPhoto ? { worker: { fullName: fullName.trim() }, kind: 'profile' } : null}
+        onClose={() => setTakingPhoto(false)}
+        onCaptured={(photo, descriptor) => setNewPhoto({ photo, descriptor })}
+      />
     </Dialog>
   );
 }

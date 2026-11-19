@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import toast from 'react-hot-toast';
-import { AlertTriangle, Camera, CheckCircle2, ImageUp, Loader2, RefreshCw, SwitchCamera } from 'lucide-react';
+import { AlertTriangle, Camera, CheckCircle2, ImageUp, Loader2, RefreshCw, SwitchCamera, UserRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { labourApi, type AttendancePhoto, type AttendancePhotoResult, type Worker } from '@/lib/labour-api';
@@ -11,10 +11,8 @@ import { getErrorMessage } from '@/utils/error-handler';
 import { cn } from '@/lib/utils';
 
 export type PhotoKind = 'in' | 'out';
-export interface PhotoTarget {
-  worker: Worker;
-  kind: PhotoKind;
-}
+// Arrival / leaving photos are saved here; a profile photo is handed back to the worker form
+export type PhotoTarget = { worker: Worker; kind: PhotoKind } | { worker: Pick<Worker, 'fullName'>; kind: 'profile' };
 
 // Photos are scaled down before reading the face and sending: enough detail, small upload
 const MAX_SIDE = 960;
@@ -88,12 +86,14 @@ interface Props {
   // The worker's photos so far today (the arrival photo is shown when taking the leaving one)
   current?: { checkIn?: AttendancePhoto; checkOut?: AttendancePhoto };
   onClose: () => void;
-  onSaved: (result: AttendancePhotoResult) => void;
+  onSaved?: (result: AttendancePhotoResult) => void;
+  // Profile photo: the photo and its face, for the worker form to save
+  onCaptured?: (photo: string, descriptor: number[]) => void;
 }
 
 type Step = 'camera' | 'checking' | 'preview' | 'saving' | 'done';
 
-export function AttendancePhotoDialog({ projectId, date, target, current, onClose, onSaved }: Props) {
+export function AttendancePhotoDialog({ projectId, date, target, current, onClose, onSaved, onCaptured }: Props) {
   const open = !!target;
   const [step, setStep] = useState<Step>('camera');
   const [facing, setFacing] = useState<'environment' | 'user'>('environment');
@@ -187,6 +187,11 @@ export function AttendancePhotoDialog({ projectId, date, target, current, onClos
 
   const save = async () => {
     if (!target || !photo || !face?.ok) return;
+    if (target.kind === 'profile') {
+      onCaptured?.(photo, face.descriptor);
+      onClose();
+      return;
+    }
     setStep('saving');
     try {
       const res = await labourApi.recordPhoto({
@@ -197,7 +202,7 @@ export function AttendancePhotoDialog({ projectId, date, target, current, onClos
         photo,
         descriptor: face.descriptor,
       });
-      onSaved(res.data);
+      onSaved?.(res.data);
       if (target.kind === 'in') {
         toast.success(res.message);
         onClose();
@@ -207,7 +212,7 @@ export function AttendancePhotoDialog({ projectId, date, target, current, onClos
       }
     } catch (error) {
       const message = getErrorMessage(error, 'Could not save the photo');
-      // The face belongs to another worker who already arrived: show it on the photo, a retake is needed
+      // Not this worker's face (profile photo, or another worker who already arrived): show it on the photo, a retake is needed
       if ((error as { response?: { status?: number } })?.response?.status === 409) {
         setFace({ ok: false, reason: message });
       } else {
@@ -224,17 +229,29 @@ export function AttendancePhotoDialog({ projectId, date, target, current, onClos
   };
 
   const leaving = target?.kind === 'out';
+  const profile = target?.kind === 'profile';
   const name = target?.worker.fullName ?? '';
+  const registered = target && target.kind !== 'profile' ? target.worker.profilePhoto : undefined;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && step !== 'saving' && onClose()}>
       <DialogContent className="max-h-[95vh] max-w-xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {step === 'done' ? `${name}: morning and evening` : leaving ? `${name} is leaving` : `${name} is arriving`}
+            {profile
+              ? name
+                ? `Profile photo of ${name}`
+                : 'Profile photo'
+              : step === 'done'
+                ? `${name}: morning and evening`
+                : leaving
+                  ? `${name} is leaving`
+                  : `${name} is arriving`}
           </DialogTitle>
           <DialogDescription>
-            {step === 'done'
+            {profile
+              ? 'A clear photo of the worker’s face, looking at the camera. Arrival and leaving photos must match it, so nobody else can be recorded as this worker.'
+              : step === 'done'
               ? 'The leaving photo was compared with the arrival photo.'
               : leaving
                 ? 'Take a photo of the worker’s face. It is compared with this morning’s photo to check it is the same person.'
@@ -246,6 +263,26 @@ export function AttendancePhotoDialog({ projectId, date, target, current, onClos
           <PhotoCompare checkIn={result.checkIn} checkOut={result.checkOut} />
         ) : (
           <div className="space-y-3">
+            {!profile && step === 'camera' &&
+              (registered ? (
+                <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-2">
+                  <img
+                    src={apiFileUrl(registered.photoPath)}
+                    alt={`Profile photo of ${name}`}
+                    className="h-14 w-14 rounded-md object-cover"
+                  />
+                  <p className="text-xs text-gray-600">
+                    Compared with <span className="font-medium text-gray-900">{name}</span>’s profile photo: another person’s
+                    face is refused.
+                  </p>
+                </div>
+              ) : (
+                <p className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <UserRound className="mt-0.5 h-4 w-4 shrink-0" />
+                  {name} has no profile photo, so the face cannot be checked against the registered worker. Add one under
+                  Workers.
+                </p>
+              ))}
             {leaving && current?.checkIn && step === 'camera' && (
               <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-2">
                 <img
@@ -300,7 +337,7 @@ export function AttendancePhotoDialog({ projectId, date, target, current, onClos
               face.ok ? (
                 <p className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
                   <CheckCircle2 className="h-4 w-4 shrink-0" />
-                  Face found. Save the photo, or retake it.
+                  Face found. {profile ? 'Use the photo' : 'Save the photo'}, or retake it.
                 </p>
               ) : (
                 <p className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -362,7 +399,7 @@ export function AttendancePhotoDialog({ projectId, date, target, current, onClos
                 className="bg-gray-900 text-white hover:bg-gray-800"
               >
                 {step === 'saving' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {leaving ? 'Save and compare' : 'Save arrival'}
+                {profile ? 'Use this photo' : leaving ? 'Save and compare' : 'Save arrival'}
               </Button>
             </>
           )}

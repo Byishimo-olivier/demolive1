@@ -1,36 +1,24 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import toast from 'react-hot-toast';
-import { AlertCircle, DollarSign, FolderKanban, Loader2, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react';
+import { AlertCircle, DollarSign, FolderKanban, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Card, CardContent } from '@/components/ui/card';
 import { DashboardCharts } from '@/components/dashboard/DashboardCharts';
 import { ProfitLossPanel } from '@/components/dashboard/ProfitLossPanel';
 import { ExportMenu } from '@/components/dashboard/ExportMenu';
-import { NotificationsPanel } from '@/components/notifications/NotificationsPanel';
 import { dashboardApi } from '@/lib/dashboard-api';
 import { exportDashboard, type DashboardExportFormat } from '@/lib/dashboard-export';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { getErrorMessage } from '@/utils/error-handler';
 import { cn } from '@/lib/utils';
 
-const STATUS_STYLES: Record<string, string> = {
-  'In Progress': 'bg-blue-50 text-blue-700',
-  Planning: 'bg-amber-50 text-amber-700',
-  Completed: 'bg-emerald-50 text-emerald-700',
-  'On Hold': 'bg-gray-100 text-gray-600',
-  Cancelled: 'bg-red-50 text-red-700',
-};
-
 /**
- * The whole company at a glance: every project's money, progress and activity,
+ * The whole company at a glance: every project's money and progress,
  * whichever project is open at the moment.
  */
 export function Overall() {
-  const navigate = useNavigate();
   const { formatAmount, currency } = useCurrency();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -44,17 +32,13 @@ export function Overall() {
     queryKey: ['profit-loss', 'all', '', ''],
     queryFn: () => dashboardApi.getProfitLoss(),
   });
-  const healthQuery = useQuery({
-    queryKey: ['projects-health', 'overall'],
-    queryFn: () => dashboardApi.getProjectsHealth(),
-  });
 
   const summary = summaryQuery.data;
   const profit = profitQuery.data;
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await Promise.all([summaryQuery.refetch(), profitQuery.refetch(), healthQuery.refetch()]);
+    await Promise.all([summaryQuery.refetch(), profitQuery.refetch()]);
     window.dispatchEvent(new CustomEvent('dashboard-refresh'));
     setTimeout(() => setIsRefreshing(false), 600);
   };
@@ -124,12 +108,6 @@ export function Overall() {
     },
   ];
 
-  // Every project's activity: progress and budget, with its income and profit / loss
-  const moneyByProject = new Map((profit?.byProject ?? []).map((p) => [String(p.projectId), p]));
-  const projects = (healthQuery.data?.projects ?? [])
-    .map((p) => ({ ...p, money: moneyByProject.get(String(p.projectId)) }))
-    .sort((a, b) => (b.money?.expenses ?? b.expenses) - (a.money?.expenses ?? a.expenses));
-
   return (
     <div className="space-y-6">
       <motion.div
@@ -139,7 +117,7 @@ export function Overall() {
       >
         <div>
           <h1 className="font-heading text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="mt-1 text-gray-500">The whole company: every project's money, progress and activity</p>
+          <p className="mt-1 text-gray-500">The whole company: every project's money and progress</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing} className="h-9 border-gray-200">
@@ -173,82 +151,6 @@ export function Overall() {
             </CardContent>
           </Card>
         ))}
-      </motion.div>
-
-      {/* What happened on the projects, one click from where it happened */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
-        <NotificationsPanel />
-      </motion.div>
-
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-        <Card className="border-gray-200">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Projects activity</CardTitle>
-            <p className="text-sm text-gray-500">Progress, budget and money of each project. Click a project to open it.</p>
-          </CardHeader>
-          <CardContent>
-            {healthQuery.isLoading ? (
-              <div className="flex justify-center py-10">
-                <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-              </div>
-            ) : projects.length === 0 ? (
-              <p className="py-8 text-center text-sm text-gray-500">No projects yet</p>
-            ) : (
-              <div className="overflow-x-auto rounded-xl border border-gray-200">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-gray-50">
-                      <TableHead>Project</TableHead>
-                      <TableHead className="min-w-[140px]">Progress</TableHead>
-                      <TableHead className="text-right">Budget</TableHead>
-                      <TableHead className="text-right">Expenses</TableHead>
-                      <TableHead className="text-right">Income</TableHead>
-                      <TableHead className="text-right">Profit / loss</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {projects.map((p) => {
-                      const expenses = p.money?.expenses ?? p.expenses;
-                      const pl = p.money?.profitLoss ?? 0;
-                      const progress = Math.max(0, Math.min(100, Math.round(p.progress || 0)));
-                      return (
-                        <TableRow key={String(p.projectId)} className="cursor-pointer hover:bg-gray-50" onClick={() => navigate(`/projects/${p.projectId}`)}>
-                          <TableCell className="min-w-[180px]">
-                            <p className="font-medium text-gray-900">{p.projectName}</p>
-                            <span className={cn('mt-1 inline-block rounded-full px-2 py-0.5 text-xs', STATUS_STYLES[p.status] ?? 'bg-gray-100 text-gray-600')}>
-                              {p.status}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <div className="h-2 w-24 overflow-hidden rounded-full bg-gray-100">
-                                <div className="h-full rounded-full bg-gray-900" style={{ width: `${progress}%` }} />
-                              </div>
-                              <span className="text-xs text-gray-600">{progress}%</span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-right">
-                            {p.budget > 0 ? formatAmount(p.budget) : '—'}
-                            {p.budget > 0 && (
-                              <p className={cn('text-xs', p.budgetUtilization > 100 ? 'text-red-600' : 'text-gray-500')}>
-                                {Math.round(p.budgetUtilization)}% used
-                              </p>
-                            )}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-right">{formatAmount(expenses)}</TableCell>
-                          <TableCell className="whitespace-nowrap text-right">{formatAmount(p.money?.income ?? 0)}</TableCell>
-                          <TableCell className={cn('whitespace-nowrap text-right font-semibold', pl < 0 ? 'text-red-600' : 'text-emerald-700')}>
-                            {formatAmount(pl)}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
       </motion.div>
 
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>

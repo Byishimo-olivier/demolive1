@@ -298,6 +298,15 @@ export function Login() {
               </Button>
             </form>
 
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-4 w-full h-11 border-orange-300 bg-orange-50 text-orange-800 hover:bg-orange-100 rounded-lg font-medium"
+              onClick={() => navigate('/demo')}
+            >
+              No account yet? Explore the live demo
+            </Button>
+
             <div className="mt-8">
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
