@@ -10,8 +10,12 @@ import { projectAccessStore } from '../lib/project-access-store';
 import { projectAccessApi } from '../lib/project-access-api';
 import { session, type SignOutReason } from '../lib/session';
 import toast from 'react-hot-toast';
-import { DEMO_TOKEN, isDemoMode, setDemoFlag } from '../demo/demo-mode';
+import { DEMO_COMPANY_ID, DEMO_TOKEN, isDemoMode, setDemoFlag } from '../demo/demo-mode';
 import { resetDemoData } from '../demo/demo-backend';
+import { projectApi } from '../lib/project-api';
+
+// The sample project with every module filled in (see src/demo/demo-seed.ts)
+const SHOWCASE_PROJECT_CODE = 'KBH-2026-01';
 
 // There is no personal workspace: everyone works in a company
 type ProfileType = 'organization';
@@ -38,7 +42,8 @@ type AuthContextType = {
   can: (permission: string) => boolean;
   // Demo: browse the app with sample data, no account needed
   isDemo: boolean;
-  startDemo: () => Promise<void>;
+  /** Opens the demo, then goes to `redirectTo` (an in-app path) or the dashboard */
+  startDemo: (redirectTo?: string) => Promise<void>;
 };
 
 export type SignOutOptions = {
@@ -46,11 +51,6 @@ export type SignOutOptions = {
   reason?: SignOutReason;
   /** Tell other tabs to sign out too. Defaults to true. */
   broadcast?: boolean;
-};
-
-const SIGN_OUT_MESSAGES: Partial<Record<SignOutReason, string>> = {
-  idle: 'You were signed out after a period of inactivity.',
-  expired: 'Your session has expired. Please sign in again.',
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -74,7 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [currentCompanyRole, setCurrentCompanyRole] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const { currentProject } = useProject();
+  const { currentProject, setProject } = useProject();
   // Re-render permission checks when the selected project's access arrives
   const projectAccess = useSyncExternalStore(projectAccessStore.subscribe, projectAccessStore.get);
 
@@ -104,40 +104,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [accessProjectId, activeProfile?.id]);
 
-  // Restore the session once, when the app opens
+  // Demo site, nothing is protected: everyone works in the sample workspace without an account.
+  // Opens a fresh sandbox with clean sample data and returns its user.
+  const openDemoSession = async (): Promise<User> => {
+    resetDemoData();
+    localStorage.removeItem('infrasoko_active_project');
+    localStorage.removeItem('infrasoko_active_profile');
+    setDemoFlag(true);
+    // Answered by the demo backend (see src/demo), never by the real server
+    const response = await authApi.login({ email: 'demo@infrasoko.app', password: 'demo' });
+    // "Remembered" so the demo survives a refresh and isn't signed out for being idle
+    session.start(DEMO_TOKEN, response.data.user, true);
+    return response.data.user;
+  };
+
+  // Fresh demo: select the fully filled sample project, so the project pages
+  // (finance, procurement, timeline, inventory…) show data straight away
+  const selectShowcaseProject = async () => {
+    try {
+      const { data: projects } = await companiesApi.getCompanyProjects(DEMO_COMPANY_ID);
+      const showcase = projects.find((p) => p.projectCode === SHOWCASE_PROJECT_CODE) ?? projects[0];
+      if (!showcase) return;
+      const { data: project } = await projectApi.getProject(showcase._id);
+      setProject(project);
+    } catch (error) {
+      console.error('Could not select the sample project:', error);
+    }
+  };
+
+  // When the app opens: carry on with the demo in progress (e.g. after a refresh), else open a fresh one
   useEffect(() => {
     let cancelled = false;
     const initAuth = async () => {
       try {
-        // A new tab of a non-remembered session: borrow it from an open tab
-        if (!session.getToken()) {
-          await session.borrowFromOpenTab();
-        }
-        const token = session.getToken();
-        // A demo left on without its session (e.g. storage cleared): back to the real server
-        if (isDemoMode() && token !== DEMO_TOKEN) {
-          setDemoFlag(false);
-          resetDemoData();
-        }
-        if (!token) return;
-
-        if (session.isExpired(token)) {
-          session.clear('expired', false);
-          toast.error(SIGN_OUT_MESSAGES.expired!);
-          return;
-        }
-
         const storedUser = session.getUser();
-        if (!storedUser) {
-          session.clear('manual', false);
-          return;
-        }
+        const resume = isDemoMode() && session.getToken() === DEMO_TOKEN && storedUser;
+        const demoUser = resume ? storedUser : await openDemoSession();
         if (cancelled) return;
-        setUser(storedUser);
-        await loadUserCompaniesAndProfile(storedUser);
+        setUser(demoUser);
+        await loadUserCompaniesAndProfile(demoUser);
+        if (!resume) await selectShowcaseProject();
       } catch (error) {
-        console.error('Error initializing auth:', error);
-        clearAuthData('manual', false);
+        console.error('Could not open the demo:', error);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -161,22 +169,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, location.pathname, navigate]);
-
-  const clearAuthData = (reason: SignOutReason = 'manual', broadcast = true) => {
-    session.clear(reason, broadcast);
-    // Leaving the demo throws away the visitor's changes
-    if (isDemoMode()) {
-      setDemoFlag(false);
-      resetDemoData();
-    }
-    setUser(null);
-    setActiveProfile(null);
-    setOrganizationProfiles([]);
-    setCurrentCompanyRole(null);
-
-    // Clear permission service
-    permissionService.clearPermissions();
-  };
 
   const loadUserCompaniesAndProfile = async (user: User) => {
     try {
@@ -257,34 +249,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     navigate(safeRedirect(redirectTo) ?? redirectTarget() ?? '/dashboard');
   };
 
-  const handleStartDemo = async () => {
-    // A fresh sandbox each time the demo is started
-    resetDemoData();
-    localStorage.removeItem('infrasoko_active_project');
-    localStorage.removeItem('infrasoko_active_profile');
-    setDemoFlag(true);
-    // Answered by the demo backend (see src/demo)
-    const response = await authApi.login({ email: 'demo@infrasoko.app', password: 'demo' });
-    // "Remembered" so the demo survives a refresh and isn't signed out for being idle
-    session.start(DEMO_TOKEN, response.data.user, true);
-    setUser(response.data.user);
-    await loadUserCompaniesAndProfile(response.data.user);
+  // /demo: a fresh sandbox, then the dashboard (or `redirectTo`)
+  const handleStartDemo = async (redirectTo?: string) => {
+    const demoUser = await openDemoSession();
+    setUser(demoUser);
+    await loadUserCompaniesAndProfile(demoUser);
+    await selectShowcaseProject();
     setLoading(false);
-    navigate('/dashboard', { replace: true });
+    navigate(safeRedirect(redirectTo) ?? '/dashboard', { replace: true });
   };
 
-  const handleSignOut = async ({ reason = 'manual', broadcast = true }: SignOutOptions = {}) => {
-    clearAuthData(reason, broadcast);
-    const message = SIGN_OUT_MESSAGES[reason];
-    if (message) toast.error(message, { id: 'session-ended' });
-    // When the session ended on its own, come back to the same page after signing in.
-    // (The sign-in page reads the reason from session storage, set by clearAuthData.)
-    if (reason === 'manual') {
-      navigate('/login');
-    } else {
-      const back = location.pathname + location.search;
-      navigate(`/login?redirect=${encodeURIComponent(back)}`);
-    }
+  // No accounts on the demo site: "signing out" starts over on the dashboard with clean sample
+  // data. A full reload also drops anything cached from the old sandbox.
+  const handleSignOut = async (_options?: SignOutOptions) => {
+    session.clear('manual', false);
+    setDemoFlag(false);
+    resetDemoData();
+    window.location.assign('/dashboard');
   };
 
   const switchToProfile = async (profileType: ProfileType, profileId: string) => {

@@ -674,7 +674,36 @@ on('GET', '/users/search', ({ params }) => {
   const q = String(params.email || '').toLowerCase();
   return ok(getDb().users.filter((u) => !q || u.email.toLowerCase().includes(q) || u.fullName.toLowerCase().includes(q)));
 });
-on('GET', '/users/admin/stats', () => ok({ totalUsers: getDb().users.length, totalCompanies: 1, totalProjects: getDb().projects.length }));
+// Admin page: every user with the companies they own (only the demo user owns the demo company)
+on('GET', '/users/admin/stats', () => {
+  const company = getDb().company;
+  const documentCount = col('documents').length;
+  return ok(
+    getDb().users.map((u) => {
+      const owns = u._id === DEMO_USER_ID;
+      return {
+        _id: u._id,
+        fullName: u.fullName,
+        email: u.email,
+        plan: owns ? 'enterprise' : 'free',
+        subscriptionStatus: owns ? 'active' : 'none',
+        totalStorageUsed: owns ? documentCount * 1_250_000 : 0,
+        documentCount: owns ? documentCount : 0,
+        companyCount: owns ? 1 : 0,
+        companies: owns
+          ? [{
+              _id: company._id,
+              name: company.name,
+              type: company.type || 'Contractor',
+              plan: 'enterprise',
+              subscriptionStatus: 'active',
+              teamMemberCount: (company.members || []).length,
+            }]
+          : [],
+      };
+    }),
+  );
+});
 
 // --- Company ---
 on('GET', '/companies/user/me', () => ok([getDb().company]));

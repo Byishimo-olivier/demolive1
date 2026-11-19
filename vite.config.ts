@@ -12,10 +12,10 @@ export default defineConfig(({ mode }) => {
     port: 4545,
     strictPort: true,
     allowedHosts: true,
+    // Hot reload shares the dev server's port (whatever --port says)
     hmr: {
       protocol: "ws",
       host: "localhost",
-      port: 4545,
     },
     proxy: {
       '/api': {

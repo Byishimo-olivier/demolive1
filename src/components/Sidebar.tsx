@@ -64,7 +64,7 @@ const bottomNavigation = [
 
 export function Sidebar({ isCollapsed }: SidebarProps) {
   const location = useLocation();
-  const { user, signOut, activeProfile, switchToProfile, organizationProfiles } = useAuth();
+  const { user, signOut, isDemo, activeProfile, switchToProfile, organizationProfiles } = useAuth();
   // Everyone works in a company; people invited to one of its projects only see their projects
   const workspaceName = activeProfile?.name || 'Company';
   const projectOnly = !!(activeProfile?.data as { projectAccessOnly?: boolean } | undefined)?.projectAccessOnly;
@@ -244,7 +244,7 @@ export function Sidebar({ isCollapsed }: SidebarProps) {
                 className="rounded-lg mx-1 text-red-600 focus:text-red-700 focus:bg-red-50"
               >
                 <LogOut className="mr-2 h-4 w-4" />
-                Sign out
+                {isDemo ? 'Start over' : 'Sign out'}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

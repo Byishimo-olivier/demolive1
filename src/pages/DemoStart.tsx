@@ -6,7 +6,7 @@ import { Button } from '../components/ui/button';
 /**
  * /demo — the link to send to prospects: opens the app with sample data, no account needed.
  */
-export function DemoStart() {
+export function DemoStart({ redirectTo }: { redirectTo?: string } = {}) {
   const { startDemo } = useAuth();
   const [failed, setFailed] = useState(false);
   const started = useRef(false);
@@ -15,20 +15,25 @@ export function DemoStart() {
     // Once, even under React StrictMode's double effects
     if (started.current) return;
     started.current = true;
-    startDemo().catch((error) => {
+    startDemo(redirectTo).catch((error) => {
       console.error('Could not start the demo', error);
       setFailed(true);
     });
-  }, [startDemo]);
+  }, [startDemo, redirectTo]);
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-gray-50 px-4 text-center">
       {failed ? (
         <>
           <p className="text-gray-700">The demo could not start in this browser.</p>
-          <Button asChild variant="outline">
-            <Link to="/">Back to the home page</Link>
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => window.location.reload()}>
+              Try again
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/login">Sign in</Link>
+            </Button>
+          </div>
         </>
       ) : (
         <>

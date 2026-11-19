@@ -1,5 +1,4 @@
-import { useNavigate } from 'react-router-dom';
-import { LogOut, PhoneCall, Sparkles } from 'lucide-react';
+import { PhoneCall, RotateCcw, Sparkles } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { DEMO_CONTACT } from '../demo/demo-mode';
 import { Button } from './ui/button';
@@ -7,7 +6,6 @@ import { Button } from './ui/button';
 /** Shown on every page while someone explores the demo: what it is, and how to get a real account */
 export function DemoBanner() {
   const { isDemo, signOut } = useAuth();
-  const navigate = useNavigate();
   if (!isDemo) return null;
 
   const contactHref = DEMO_CONTACT.whatsapp
@@ -18,10 +16,8 @@ export function DemoBanner() {
         ? `mailto:${DEMO_CONTACT.email}?subject=${encodeURIComponent('InfraSoko account request')}`
         : '/contact';
 
-  const exitDemo = async () => {
-    await signOut();
-    navigate('/', { replace: true });
-  };
+  // Signing out of the demo opens a fresh one on the dashboard with clean sample data
+  const restartDemo = () => signOut();
 
   return (
     <div className="mb-5 flex flex-col gap-3 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -42,9 +38,9 @@ export function DemoBanner() {
             Get your own account
           </a>
         </Button>
-        <Button size="sm" variant="outline" className="border-orange-200 bg-white" onClick={exitDemo}>
-          <LogOut className="mr-2 h-4 w-4" />
-          Exit demo
+        <Button size="sm" variant="outline" className="border-orange-200 bg-white" onClick={restartDemo}>
+          <RotateCcw className="mr-2 h-4 w-4" />
+          Start over
         </Button>
       </div>
     </div>

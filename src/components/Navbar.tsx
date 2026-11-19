@@ -22,7 +22,7 @@ interface NavbarProps {
 }
 
 export function Navbar({ onToggleSidebar, isSidebarCollapsed }: NavbarProps) {
-  const { user, signOut, activeProfile, organizationProfiles, switchToProfile } = useAuth();
+  const { user, signOut, isDemo, activeProfile, organizationProfiles, switchToProfile } = useAuth();
   const navigate = useNavigate();
 
   return (
@@ -107,7 +107,7 @@ export function Navbar({ onToggleSidebar, isSidebarCollapsed }: NavbarProps) {
                 onClick={() => signOut()}
                 className="rounded-lg mx-1 text-red-600 focus:text-red-600 focus:bg-red-50"
               >
-                Sign out
+                {isDemo ? 'Start over' : 'Sign out'}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

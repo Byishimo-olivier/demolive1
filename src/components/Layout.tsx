@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useProject } from '../contexts/ProjectContext';
 import { Sidebar } from './Sidebar';
@@ -11,7 +11,7 @@ import { cn } from '../lib/utils';
 import { motion } from 'motion/react';
 
 export function Layout() {
-  const { user, loading, activeProfile } = useAuth();
+  const { user, loading } = useAuth();
   const { currentProject } = useProject();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const location = useLocation();
@@ -25,16 +25,17 @@ export function Layout() {
     );
   }
 
+  // Nothing is protected: the demo workspace opens by itself (see AuthContext).
+  // Only if that failed (e.g. browser storage blocked) is there nothing to show.
   if (!user) {
-    // Come back here after signing in
-    const back = location.pathname + location.search;
-    return <Navigate to={`/login?redirect=${encodeURIComponent(back)}`} replace />;
-  }
-
-  // No company yet: register one first (settings and payment pages stay open)
-  const openWithoutCompany = ['/register-company', '/settings', '/payment/result'];
-  if (!activeProfile && !openWithoutCompany.some((path) => location.pathname.startsWith(path))) {
-    return <Navigate to="/register-company" replace />;
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gray-50 px-4 text-center">
+        <p className="text-gray-700">The demo could not open in this browser.</p>
+        <Button variant="outline" onClick={() => window.location.reload()}>
+          Try again
+        </Button>
+      </div>
+    );
   }
 
   const projectRoutes = ['/procurement', '/finance', '/contracts', '/reports', '/timeline', '/inventory'];
