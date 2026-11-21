@@ -114,7 +114,7 @@ export function Contact() {
                 <p className="mt-2 text-base text-gray-600">
                   Our friendly team is here to help.
                   <br />
-                  <a href="mailto:alabastaking56@gmail.com" className="text-blue-600 hover:text-blue-500">alabastaking56@gmail.com</a>
+                  <a href="mailto:ndaganothierry@gmail.com" className="text-blue-600 hover:text-blue-500">ndaganothierry@gmail.com</a>
                 </p>
               </div>
             </div>
@@ -130,7 +130,7 @@ export function Contact() {
                 <p className="mt-2 text-base text-gray-600">
                   Come say hello at our HQ.
                   <br />
-                  KG 235 ST
+                  6112 KN 4 avenue 
                   <br />
                   Gasabo, Kigali
                 </p>
@@ -148,7 +148,7 @@ export function Contact() {
                 <p className="mt-2 text-base text-gray-600">
                   Mon-Fri from 8am to 5pm.
                   <br />
-                  <a href="tel:+1234567890" className="text-blue-600 hover:text-blue-500">+250 790 000 000</a>
+                  <a href="tel:+250785230859" className="text-blue-600 hover:text-blue-500">+250 785230859</a>
                 </p>
               </div>
             </div>
