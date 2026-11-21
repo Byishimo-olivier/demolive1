@@ -132,7 +132,7 @@ export function Contact() {
                   <br />
                   6112 KN 4 avenue 
                   <br />
-                  Gasabo, Kigali
+                  Nyarugenge, Kigali
                 </p>
               </div>
             </div>
